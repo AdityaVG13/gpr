@@ -1,0 +1,296 @@
+#!/usr/bin/env bash
+# gpr — Goal-driven PRD Ratchet
+# Audit-verified iterative agent loop.
+#
+# Apache 2.0. https://github.com/AdityaVG13/GPR
+
+set -euo pipefail
+
+GPR_HOME="${GPR_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
+export GPR_LIB="$GPR_HOME/lib"
+export GPR_TEMPLATES="$GPR_HOME/templates"
+export GPR_PROMPTS="$GPR_HOME/prompts"
+export PYTHONPATH="$GPR_HOME${PYTHONPATH:+:$PYTHONPATH}"
+
+# shellcheck source=lib/term.sh
+source "$GPR_LIB/term.sh"
+
+VERSION="0.1.0"
+
+usage() {
+  cat <<USAGE
+${C_BOLD}gpr${C_RESET} ${C_GRAY}— Goal-driven PRD Ratchet (v${VERSION})${C_RESET}
+
+  Audit-verified iterative agent loop. Hand it a goal and a Plan;
+  it ratchets toward done with evidence at every step.
+
+${C_BOLD}USAGE${C_RESET}
+  gpr <command> [options]
+
+${C_BOLD}COMMANDS${C_RESET}
+  ${C_CYAN}init${C_RESET}              create .gpr/Plan.json + Pinned.md + Spine.md
+  ${C_CYAN}run${C_RESET}               drive the loop until done / blocked / budget
+  ${C_CYAN}status${C_RESET}            show plan progress, next intent, budget burn
+  ${C_CYAN}steer${C_RESET}             write a human interrupt to .gpr/Steer.md
+  ${C_CYAN}audit${C_RESET}             re-run verifyCmds (no looping)
+  ${C_CYAN}lint${C_RESET}              warn about weak verifyCmds, dependency cycles
+  ${C_CYAN}doctor${C_RESET}            check installed agents, python, git, jq
+  ${C_CYAN}trace${C_RESET}             tail recent events
+  ${C_CYAN}next-intent${C_RESET}       (skill) pick + mark in-progress; print the intent
+  ${C_CYAN}render-prompt${C_RESET}     (skill) print the rendered continuation prompt
+  ${C_CYAN}ingest-signal${C_RESET}     (skill) parse a signal block, run audit, persist
+
+${C_BOLD}EXAMPLES${C_RESET}
+  ${C_GRAY}# scaffold and run autonomously${C_RESET}
+  gpr init --objective "Build a TODO REST API with auth"
+  \$EDITOR .gpr/Plan.json
+  gpr run --agent claude --max-cost-usd 5
+
+  ${C_GRAY}# mid-run redirect${C_RESET}
+  gpr steer "Switch from sqlite to postgres"
+
+  ${C_GRAY}# inside a Claude TUI session (skill mode)${C_RESET}
+  /gpr next        ${C_GRAY}# picks intent + renders prompt${C_RESET}
+
+${C_BOLD}LINKS${C_RESET}
+  https://github.com/AdityaVG13/GPR
+
+USAGE
+}
+
+cmd_help() { usage; }
+
+cmd_version() { echo "gpr $VERSION"; }
+
+cmd_init() {
+  local objective="" project="" branch="" from="" force=""
+  while (( $# > 0 )); do
+    case "$1" in
+      --objective) objective="$2"; shift 2 ;;
+      --project) project="$2"; shift 2 ;;
+      --branch) branch="$2"; shift 2 ;;
+      --from) from="$2"; shift 2 ;;
+      --force) force="--force"; shift ;;
+      -h|--help)
+        echo "gpr init --objective TEXT [--project NAME] [--branch X] [--from FILE] [--force]"
+        return 0 ;;
+      *) log_fail "unknown arg: $1"; return 2 ;;
+    esac
+  done
+  if [[ -z "$objective" ]]; then
+    log_fail "--objective is required"
+    return 2
+  fi
+  banner "gpr init" "$objective"
+  hr
+  local args=(--objective "$objective")
+  [[ -n "$project" ]] && args+=(--project "$project")
+  [[ -n "$branch" ]] && args+=(--branch "$branch")
+  [[ -n "$from" ]] && args+=(--from "$from")
+  [[ -n "$force" ]] && args+=("$force")
+  python3 -m lib.cli init "${args[@]}" --json > /tmp/gpr-init-$$.json
+  log_ok "wrote .gpr/Plan.json"
+  log_info "next: edit .gpr/Plan.json to add intents and checks"
+  log_info "then: gpr run --agent claude"
+  rm -f /tmp/gpr-init-$$.json
+}
+
+cmd_run() {
+  local agent="claude" max_iters=50 iter_timeout=1800 max_cost=""
+  while (( $# > 0 )); do
+    case "$1" in
+      --agent) agent="$2"; shift 2 ;;
+      --max-iters) max_iters="$2"; shift 2 ;;
+      --iter-timeout) iter_timeout="$2"; shift 2 ;;
+      --max-cost-usd) max_cost="$2"; shift 2 ;;
+      --budget) GPR_BUDGET_TOKENS="$2"; export GPR_BUDGET_TOKENS; shift 2 ;;
+      -h|--help)
+        echo "gpr run [--agent claude|codex|opencode|gemini|echo] [--max-iters N] [--iter-timeout SEC] [--max-cost-usd USD]"
+        return 0 ;;
+      *) log_fail "unknown arg: $1"; return 2 ;;
+    esac
+  done
+  if ! agent_supports "$agent" 2>/dev/null; then
+    # shellcheck source=lib/agents.sh
+    source "$GPR_LIB/agents.sh"
+    if ! agent_supports "$agent"; then
+      log_fail "unknown agent: $agent"
+      return 2
+    fi
+  fi
+  banner "gpr run" "agent=$agent  max-iters=$max_iters"
+  hr
+
+  export GPR_AGENT="$agent" GPR_MAX_ITERS="$max_iters" GPR_ITER_TIMEOUT="$iter_timeout"
+  # shellcheck source=lib/loop.sh
+  source "$GPR_LIB/loop.sh"
+  local rc
+  set +e
+  loop_run
+  rc=$?
+  set -e
+  hr
+  case $rc in
+    0) log_ok "run complete: achieved" ;;
+    2) log_warn "run paused: blocked" ;;
+    3) log_warn "run paused: decide" ;;
+    4) log_warn "run paused: budget_limited" ;;
+    5) log_warn "run paused: unmet_zero_progress / max_iters" ;;
+    6) log_warn "run paused: unmet_stalemate" ;;
+    7) log_warn "run paused: rescope_pending" ;;
+    8) log_fail "run aborted: unmet_disk_full" ;;
+    *) log_fail "run aborted (rc=$rc)" ;;
+  esac
+  return $rc
+}
+
+cmd_status() {
+  local json
+  json=$(python3 -m lib.cli status --json 2>&1) || { echo "$json" >&2; return 1; }
+  local goal project branch status iter
+  goal=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['goal'])")
+  project=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['project'])")
+  branch=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['branch'])")
+  status=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+  iter=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['iteration'])")
+  banner "gpr status" "$project  $C_GRAY|$C_RESET  branch $branch"
+  hr
+  row "goal"      "$goal"   "$C_WHITE"
+  row "status"    "$status" "$C_CYAN"
+  row "iteration" "$iter"   "$C_WHITE"
+  echo
+  log_info "intents:"
+  echo "$json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+counts = d['intents']
+order = ['open','in_progress','done','paused']
+for k in order:
+  if counts.get(k):
+    print(f\"    {k:<14} {counts[k]}\")"
+  echo
+  log_info "next intent:"
+  local next_id next_title
+  next_id=$(echo "$json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('next_intent_id') or '(none)')")
+  next_title=$(echo "$json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('next_intent_title') or '')")
+  printf "    %s%s%s %s%s%s\n" "$C_BOLD" "$next_id" "$C_RESET" "$C_GRAY" "$next_title" "$C_RESET"
+  echo
+  log_info "budget:"
+  local frac axis cost tin tout wall
+  frac=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['fraction_used'])")
+  axis=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['binding_axis'] or '(none)')")
+  cost=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['costUsd'])")
+  tin=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['tokensInput'])")
+  tout=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['tokensOutput'])")
+  wall=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['wallClockSeconds'])")
+  local barstr; barstr=$(bar "$frac" 28)
+  printf "    %s  %s  %s%s of binding axis (%s)%s\n" \
+    "$barstr" "$(awk -v f="$frac" 'BEGIN{printf "%5.1f%%", f*100}')" "$C_GRAY" "" "$axis" "$C_RESET"
+  row "tokens in"   "$(fmt_int "$tin")"  "$C_WHITE"
+  row "tokens out"  "$(fmt_int "$tout")" "$C_WHITE"
+  row "wall-clock"  "$(fmt_duration "$wall")" "$C_WHITE"
+  row "cost"        "$(fmt_usd "$cost")" "$C_GREEN"
+}
+
+cmd_steer() {
+  local abort=""
+  local message=""
+  while (( $# > 0 )); do
+    case "$1" in
+      --abort) abort="--abort"; shift ;;
+      -h|--help) echo "gpr steer [--abort] \"<message>\""; return 0 ;;
+      *) message="$1"; shift ;;
+    esac
+  done
+  python3 -m lib.cli steer $abort "$message"
+}
+
+cmd_audit() {
+  local intent="" reverse=""
+  while (( $# > 0 )); do
+    case "$1" in
+      --intent) intent="--intent $2"; shift 2 ;;
+      --reverse) reverse="--reverse"; shift ;;
+      -h|--help) echo "gpr audit [--intent ID] [--reverse]"; return 0 ;;
+      *) log_fail "unknown arg: $1"; return 2 ;;
+    esac
+  done
+  banner "gpr audit" ""
+  hr
+  # shellcheck disable=SC2086
+  python3 -m lib.cli audit $intent $reverse --json
+}
+
+cmd_lint() {
+  banner "gpr lint" ""
+  hr
+  python3 -m lib.cli lint
+}
+
+cmd_doctor() {
+  banner "gpr doctor" "v${VERSION}"
+  hr
+  local json
+  json=$(python3 -m lib.cli doctor --json)
+  echo "$json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for c in d['checks']:
+  glyph = '+' if c['ok'] else 'x'
+  path = c.get('path') or '(not found)'
+  print(f'  {glyph}  {c[\"name\"]:<10}  {path}')"
+  if echo "$json" | grep -q '"ok": true'; then
+    echo
+    log_ok "doctor: all required deps present"
+  else
+    echo
+    log_warn "doctor: some required deps missing"
+    return 1
+  fi
+}
+
+cmd_trace() {
+  local since="${1:-100}"
+  banner "gpr trace" "tail $since events"
+  hr
+  python3 -c "
+import sys, json
+sys.path.insert(0, '$GPR_HOME')
+from lib.state import events
+for e in events.tail('.', $since):
+  print(json.dumps(e))" 2>/dev/null || log_warn "no events yet"
+}
+
+cmd_next_intent()   { python3 -m lib.cli next-intent "$@"; }
+cmd_render_prompt() { python3 -m lib.cli render-prompt "$@"; }
+cmd_ingest_signal() { python3 -m lib.cli ingest-signal "$@"; }
+
+# Dispatch.
+if (( $# == 0 )); then
+  usage
+  exit 0
+fi
+
+cmd="$1"
+shift
+case "$cmd" in
+  init)              cmd_init "$@" ;;
+  run)               cmd_run "$@" ;;
+  status)            cmd_status "$@" ;;
+  steer)             cmd_steer "$@" ;;
+  audit)             cmd_audit "$@" ;;
+  lint)              cmd_lint "$@" ;;
+  doctor)            cmd_doctor "$@" ;;
+  trace)             cmd_trace "$@" ;;
+  next-intent)       cmd_next_intent "$@" ;;
+  render-prompt)     cmd_render_prompt "$@" ;;
+  ingest-signal)     cmd_ingest_signal "$@" ;;
+  help|-h|--help)    cmd_help ;;
+  version|--version) cmd_version ;;
+  *)
+    log_fail "unknown command: $cmd"
+    echo
+    usage
+    exit 2
+    ;;
+esac
