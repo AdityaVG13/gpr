@@ -548,14 +548,22 @@ def cmd_ingest_pr(args: argparse.Namespace) -> int:
 
 def cmd_render(args: argparse.Namespace) -> int:
     from . import html_view
+    from .state import config as config_mod
     root = _project_root()
     plan = plan_mod.load(root)
     state = budget_mod.load(root)
+    cfg = config_mod.load_effective(root)
+    if args.style:
+        cfg["viewer.style"] = args.style
+    if args.theme:
+        cfg["viewer.theme"] = args.theme
+    if args.no_spotlight:
+        cfg["viewer.spotlight"] = False
     out_path = Path(args.output) if args.output else (_gpr_dir() / "Plan.html")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(html_view.render(plan, state, _gpr_dir(), root))
+    out_path.write_text(html_view.render(plan, state, _gpr_dir(), root, cfg))
     if args.json:
-        _print_json({"ok": True, "path": str(out_path)})
+        _print_json({"ok": True, "path": str(out_path), "style": cfg["viewer.style"]})
     else:
         print(out_path)
     if args.open:
@@ -565,6 +573,75 @@ def cmd_render(args: argparse.Namespace) -> int:
             import subprocess
             subprocess.Popen([opener, str(out_path)])
     return 0
+
+
+def cmd_config(args: argparse.Namespace) -> int:
+    from .state import config as config_mod
+    root = _project_root()
+    if args.action == "list":
+        cfg = config_mod.load_effective(root)
+        if args.json:
+            _print_json(cfg)
+            return 0
+        for k in sorted(cfg.keys()):
+            print(f"{k} = {cfg[k]!r}")
+        return 0
+    if args.action == "get":
+        if not args.key:
+            print("error: gpr config get <key>", file=sys.stderr)
+            return 2
+        v = config_mod.get(args.key, root)
+        if args.json:
+            _print_json({args.key: v})
+        else:
+            print(v)
+        return 0
+    if args.action == "set":
+        if not args.key or args.value is None:
+            print("error: gpr config set <key> <value>", file=sys.stderr)
+            return 2
+        v: Any = args.value
+        default = config_mod.DEFAULTS.get(args.key)
+        if isinstance(default, bool):
+            v = args.value.lower() in {"1", "true", "yes", "on"}
+        elif isinstance(default, int):
+            try:
+                v = int(args.value)
+            except ValueError:
+                print(f"error: {args.key} expects an integer", file=sys.stderr)
+                return 2
+        try:
+            if args.scope == "project":
+                config_mod.set_project(root, args.key, v)
+            else:
+                config_mod.set_user(args.key, v)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        scope_label = "project" if args.scope == "project" else "user"
+        print(f"{scope_label}: {args.key} = {v!r}")
+        return 0
+    if args.action == "unset":
+        if not args.key:
+            print("error: gpr config unset <key>", file=sys.stderr)
+            return 2
+        if args.scope == "project":
+            removed = config_mod.unset_project(root, args.key)
+        else:
+            removed = config_mod.unset_user(args.key)
+        print(f"{'removed' if removed else 'not set'}: {args.key}")
+        return 0
+    if args.action == "reset":
+        config_mod.reset_user()
+        print("user config reset")
+        return 0
+    if args.action == "keys":
+        for k in config_mod.list_keys():
+            d = config_mod.DEFAULTS[k]
+            print(f"{k}  (default: {d!r})")
+        return 0
+    print(f"error: unknown action {args.action!r}", file=sys.stderr)
+    return 2
 
 
 def cmd_revert_intent(args: argparse.Namespace) -> int:
@@ -785,8 +862,24 @@ def main() -> int:
                      help="Output path (default: .gpr/Plan.html)")
     prn.add_argument("--open", action="store_true",
                      help="Open the rendered file in the default browser")
+    prn.add_argument("--style", default=None,
+                     choices=["editorial", "terminal", "notebook", "brutalist"],
+                     help="Override the viewer style for this render")
+    prn.add_argument("--theme", default=None,
+                     choices=["paper", "sepia", "dark", "arctic"],
+                     help="Override the theme for this render")
+    prn.add_argument("--no-spotlight", action="store_true",
+                     help="Disable the spotlight cursor for this render")
     prn.add_argument("--json", action="store_true")
     prn.set_defaults(func=cmd_render)
+
+    pcg = sub.add_parser("config")
+    pcg.add_argument("action", choices=["list", "get", "set", "unset", "reset", "keys"])
+    pcg.add_argument("key", nargs="?", default=None)
+    pcg.add_argument("value", nargs="?", default=None)
+    pcg.add_argument("--scope", choices=["user", "project"], default="user")
+    pcg.add_argument("--json", action="store_true")
+    pcg.set_defaults(func=cmd_config)
 
     pri = sub.add_parser("revert-intent")
     pri.add_argument("--intent", required=True)

@@ -396,6 +396,13 @@ def _command_palette_data(plan: dict[str, Any]) -> str:
         {"kind": "action", "label": "Filter: paused", "action": "filter:paused"},
         {"kind": "action", "label": "Open intent graph fullscreen", "action": "graph:fullscreen"},
         {"kind": "action", "label": "Toggle spotlight cursor", "action": "spotlight:toggle"},
+        {"kind": "action", "label": "Style: editorial", "action": "style:editorial"},
+        {"kind": "action", "label": "Style: terminal", "action": "style:terminal"},
+        {"kind": "action", "label": "Style: notebook", "action": "style:notebook"},
+        {"kind": "action", "label": "Style: brutalist", "action": "style:brutalist"},
+        {"kind": "action", "label": "Font size: compact", "action": "fontsize:compact"},
+        {"kind": "action", "label": "Font size: default", "action": "fontsize:default"},
+        {"kind": "action", "label": "Font size: large", "action": "fontsize:large"},
         {"kind": "action", "label": "Print PRD", "action": "print"},
     ])
     for it in plan["intents"]:
@@ -503,6 +510,122 @@ html, body {
   transition: background 200ms ease, color 200ms ease;
 }
 
+/* === FONT-SIZE PRESETS === */
+:root[data-font-size="compact"] {
+  --fs-base: 14px;
+  --fs-title: 32px;
+  --fs-h2: 10px;
+  --fs-stat: 28px;
+  --fs-meta: 9.5px;
+  --fs-toc: 12px;
+  --fs-toc-id: 9.5px;
+  --fs-margin: 12px;
+  --fs-intent-title: 17px;
+  --fs-check-desc: 13px;
+}
+:root[data-font-size="default"] {
+  --fs-base: 17px;
+  --fs-title: 40px;
+  --fs-h2: 11px;
+  --fs-stat: 36px;
+  --fs-meta: 10.5px;
+  --fs-toc: 14px;
+  --fs-toc-id: 11px;
+  --fs-margin: 14px;
+  --fs-intent-title: 19px;
+  --fs-check-desc: 14.5px;
+}
+:root[data-font-size="large"] {
+  --fs-base: 19px;
+  --fs-title: 46px;
+  --fs-h2: 13px;
+  --fs-stat: 40px;
+  --fs-meta: 12px;
+  --fs-toc: 16px;
+  --fs-toc-id: 12.5px;
+  --fs-margin: 16px;
+  --fs-intent-title: 22px;
+  --fs-check-desc: 16px;
+}
+
+/* === STYLE PRESETS === */
+
+/* terminal: monospace everywhere, hard borders, no shadow, dense */
+:root[data-style="terminal"] {
+  --paper-shadow: none;
+}
+:root[data-style="terminal"] body,
+:root[data-style="terminal"] .spec-title,
+:root[data-style="terminal"] .stat-value,
+:root[data-style="terminal"] .intent-title,
+:root[data-style="terminal"] .check-desc,
+:root[data-style="terminal"] .ac-body div,
+:root[data-style="terminal"] .pinned-quote,
+:root[data-style="terminal"] .spec-lede {
+  font-family: 'JetBrains Mono', ui-monospace, monospace !important;
+}
+:root[data-style="terminal"] .spec-title { font-size: 22px; letter-spacing: 0; font-weight: 600; }
+:root[data-style="terminal"] .stat-value { font-size: 26px; }
+:root[data-style="terminal"] .intent-title { font-size: 14px; font-weight: 600; }
+:root[data-style="terminal"] .paper { padding: 32px; border: 1px solid var(--hairline); border-radius: 0; }
+:root[data-style="terminal"] hr.hairline { margin: 32px 0; }
+:root[data-style="terminal"] .intent-card { border-radius: 0; }
+:root[data-style="terminal"] .gw-col, :root[data-style="terminal"] .ac-item, :root[data-style="terminal"] .mermaid-frame { border-radius: 0; }
+:root[data-style="terminal"] .check-desc { font-size: 12.5px; }
+:root[data-style="terminal"] .spec-lede { font-size: 12.5px; }
+
+/* notebook: clean sans-serif, dense, minimal shadows */
+:root[data-style="notebook"] body,
+:root[data-style="notebook"] .spec-title,
+:root[data-style="notebook"] .intent-title,
+:root[data-style="notebook"] .check-desc,
+:root[data-style="notebook"] .stat-value,
+:root[data-style="notebook"] .ac-body div,
+:root[data-style="notebook"] .pinned-quote,
+:root[data-style="notebook"] .spec-lede {
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif !important;
+}
+:root[data-style="notebook"] .paper { padding: 40px 32px; border: 1px solid var(--hairline); }
+:root[data-style="notebook"] .spec-title { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
+:root[data-style="notebook"] .intent-title { font-size: 15px; font-weight: 600; }
+:root[data-style="notebook"] .check-desc { font-size: 13.5px; }
+:root[data-style="notebook"] .stat-value { font-size: 28px; font-weight: 600; }
+:root[data-style="notebook"] .spec-lede { font-size: 14px; line-height: 1.55; }
+
+/* brutalist: system-ui, hard borders, no transitions, no rounding, no shadows */
+:root[data-style="brutalist"] {
+  --paper-shadow: none;
+  --hairline: #000000;
+  --hairline-strong: #000000;
+}
+:root[data-style="brutalist"][data-theme="dark"] {
+  --hairline: #ffffff;
+  --hairline-strong: #ffffff;
+}
+:root[data-style="brutalist"] body,
+:root[data-style="brutalist"] .spec-title,
+:root[data-style="brutalist"] .intent-title,
+:root[data-style="brutalist"] .check-desc,
+:root[data-style="brutalist"] .stat-value,
+:root[data-style="brutalist"] .ac-body div,
+:root[data-style="brutalist"] .pinned-quote,
+:root[data-style="brutalist"] .spec-lede {
+  font-family: ui-monospace, 'Courier New', monospace !important;
+}
+:root[data-style="brutalist"] * { border-radius: 0 !important; transition: none !important; }
+:root[data-style="brutalist"] .paper { border: 2px solid var(--hairline); padding: 40px; }
+:root[data-style="brutalist"] .intent-card { border-width: 2px; }
+:root[data-style="brutalist"] .gw-col { border-width: 2px; }
+:root[data-style="brutalist"] .chip, :root[data-style="brutalist"] .copy-btn,
+:root[data-style="brutalist"] .toolbar-actions button,
+:root[data-style="brutalist"] .toolbar-actions select { border-width: 2px; border-radius: 0; }
+:root[data-style="brutalist"] .spec-title { font-size: 32px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
+:root[data-style="brutalist"] .intent-title { font-size: 14px; font-weight: 700; text-transform: uppercase; }
+:root[data-style="brutalist"] .stat-value { font-size: 30px; font-weight: 700; }
+:root[data-style="brutalist"] .scroll-rail-top { height: 4px; }
+:root[data-style="brutalist"] hr.hairline { border-top-width: 2px; }
+:root[data-style="brutalist"] .spec-lede { font-size: 13px; }
+
 /* --- top scroll-progress bar --- */
 .scroll-rail-top {
   position: fixed; top: 0; left: 0; right: 0; height: 2px;
@@ -516,17 +639,19 @@ html, body {
   transition: width 80ms linear;
 }
 
-/* --- spotlight cursor --- */
+/* --- spotlight cursor: CSS-driven for zero JS-side lag --- */
 .spotlight {
   position: fixed; pointer-events: none; z-index: 1;
-  width: 600px; height: 600px;
+  width: 520px; height: 520px;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--spotlight) 0%, transparent 60%);
-  transform: translate(-50%, -50%);
-  left: 0; top: 0;
-  transition: opacity 200ms ease;
+  background: radial-gradient(circle, var(--spotlight) 0%, transparent 62%);
+  left: var(--mx, -9999px);
+  top: var(--my, -9999px);
+  transform: translate3d(-50%, -50%, 0);
+  will-change: left, top;
   opacity: 1;
   mix-blend-mode: multiply;
+  transition: opacity 200ms ease;
 }
 :root[data-theme="dark"] .spotlight { mix-blend-mode: screen; }
 .spotlight.off { opacity: 0; }
@@ -568,7 +693,7 @@ html, body {
 }
 
 .toolbar-actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
-.toolbar-actions button, .toolbar-actions .kbd-hint {
+.toolbar-actions button, .toolbar-actions .kbd-hint, .toolbar-actions .ghost-btn {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em;
   padding: 5px 10px;
@@ -579,9 +704,33 @@ html, body {
   transition: all 150ms ease;
   border-radius: 4px;
 }
-.toolbar-actions button:hover { color: var(--ink); border-color: var(--accent-soft); }
-.toolbar-actions button[aria-pressed="true"] {
+.toolbar-actions button:hover, .toolbar-actions .ghost-btn:hover { color: var(--ink); border-color: var(--accent-soft); }
+.toolbar-actions button[aria-pressed="true"], .toolbar-actions .ghost-btn[aria-pressed="true"] {
   color: var(--accent); border-color: var(--accent);
+}
+.select-wrap {
+  position: relative; display: inline-flex;
+}
+.select-wrap select {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em;
+  padding: 5px 26px 5px 10px;
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+}
+.select-wrap select:hover { color: var(--ink); border-color: var(--accent-soft); }
+.select-wrap::after {
+  content: "▾";
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  pointer-events: none;
+  font-size: 9px;
+  color: var(--ink-faint);
 }
 .kbd-hint {
   display: inline-flex; gap: 6px; align-items: center;
@@ -641,15 +790,15 @@ html, body {
 .toc-list li.hidden { display: none; }
 .toc-list a {
   display: grid;
-  grid-template-columns: 14px 36px 1fr;
-  gap: 8px;
-  padding: 5px 6px;
+  grid-template-columns: 14px 44px 1fr;
+  gap: 10px;
+  padding: 7px 6px;
   text-decoration: none;
   color: var(--ink-muted);
   align-items: baseline;
   border-radius: 3px;
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: var(--fs-toc, 14px);
+  line-height: 1.4;
   transition: background 100ms ease, color 100ms ease;
 }
 .toc-list a:hover { background: var(--accent-faint); color: var(--ink); }
@@ -659,11 +808,14 @@ html, body {
 .toc-list li[data-status="paused"] .toc-glyph { color: var(--warn); }
 .toc-list .toc-id {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
+  font-size: var(--fs-toc-id, 11px);
   color: var(--ink-faint);
   text-transform: uppercase;
 }
-.toc-list .toc-title { color: inherit; }
+.toc-list .toc-title { color: inherit; font-size: var(--fs-toc, 14px); }
+.toc-rail-progress > div:first-child {
+  font-size: 11px !important;
+}
 .toc-list li.is-current a {
   background: var(--accent-faint);
   color: var(--ink);
@@ -1144,15 +1296,18 @@ dialog.zoom-dlg::backdrop {
   color: var(--ink-faint);
   margin-bottom: 10px;
 }
-.margin-block p, .margin-block li { font-size: 13px; line-height: 1.55; color: var(--ink-muted); margin: 0 0 6px 0; }
+.margin-block p, .margin-block li { font-size: var(--fs-margin, 14px); line-height: 1.6; color: var(--ink-muted); margin: 0 0 8px 0; }
 .margin-block ul { padding-left: 14px; margin: 0; }
 .margin-block .pinned-quote {
   font-style: italic;
   color: var(--ink);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--fs-margin, 14px);
+  line-height: 1.55;
   white-space: pre-wrap;
   font-family: 'EB Garamond', Georgia, serif;
+}
+.margin-label {
+  font-size: 10.5px !important;
 }
 
 /* --- command palette --- */
@@ -1278,7 +1433,9 @@ document.addEventListener('alpine:init', () => {
   Alpine.data('app', () => ({
     filter: 'all',
     search: '',
-    theme: 'paper',
+    theme: document.documentElement.dataset.theme || 'paper',
+    style: document.documentElement.dataset.style || 'editorial',
+    fontSize: document.documentElement.dataset.fontSize || 'default',
     spotlightOn: true,
     paletteOpen: false,
     paletteQuery: '',
@@ -1290,6 +1447,8 @@ document.addEventListener('alpine:init', () => {
       const stored = JSON.parse(localStorage.getItem(this.lsKey) || '{}');
       Object.assign(this, stored);
       this.applyTheme();
+      this.applyStyle();
+      this.applyFontSize();
       this.applyFilter();
       this.bindScroll();
       this.bindIntersection();
@@ -1304,8 +1463,22 @@ document.addEventListener('alpine:init', () => {
         filter: this.filter,
         search: this.search,
         theme: this.theme,
+        style: this.style,
+        fontSize: this.fontSize,
         spotlightOn: this.spotlightOn,
       }));
+    },
+
+    setStyle(s) { this.style = s; this.applyStyle(); this.persist(); },
+    applyStyle() { document.documentElement.dataset.style = this.style; },
+    setFontSize(f) { this.fontSize = f; this.applyFontSize(); this.persist(); },
+    applyFontSize() { document.documentElement.dataset.fontSize = this.fontSize; },
+    toggleSpotlight() {
+      this.spotlightOn = !this.spotlightOn;
+      const el = document.querySelector('.spotlight');
+      if (el) el.classList.toggle('off', !this.spotlightOn);
+      this.persist();
+      this.toast(this.spotlightOn ? 'spotlight on' : 'spotlight off');
     },
 
     setFilter(f) { this.filter = f; this.applyFilter(); this.persist(); },
@@ -1450,7 +1623,9 @@ document.addEventListener('alpine:init', () => {
         if (verb === 'theme') this.setTheme(arg);
         else if (verb === 'filter') this.setFilter(arg);
         else if (verb === 'graph' && arg === 'fullscreen') this.zoomMermaid();
-        else if (verb === 'spotlight' && arg === 'toggle') { this.spotlightOn = !this.spotlightOn; this.persist(); document.querySelector('.spotlight').classList.toggle('off', !this.spotlightOn); }
+        else if (verb === 'spotlight' && arg === 'toggle') this.toggleSpotlight();
+        else if (verb === 'style') this.setStyle(arg);
+        else if (verb === 'fontsize') this.setFontSize(arg);
         else if (verb === 'print') window.print();
       }
     },
@@ -1484,20 +1659,24 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    /* --- spotlight cursor --- */
+    /* --- spotlight cursor: CSS variable, rAF-coalesced — direct follow, no lag --- */
     bindSpotlight() {
       const el = document.querySelector('.spotlight');
       if (!el) return;
       el.classList.toggle('off', !this.spotlightOn);
-      let tx = 0, ty = 0, x = 0, y = 0;
-      window.addEventListener('pointermove', (e) => { tx = e.clientX; ty = e.clientY; });
-      const tick = () => {
-        x += (tx - x) * 0.12;
-        y += (ty - y) * 0.12;
-        el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      let lastX = 0, lastY = 0, pending = false;
+      const root = document.documentElement;
+      window.addEventListener('pointermove', (e) => {
+        lastX = e.clientX; lastY = e.clientY;
+        if (!pending) {
+          pending = true;
+          requestAnimationFrame(() => {
+            root.style.setProperty('--mx', lastX + 'px');
+            root.style.setProperty('--my', lastY + 'px');
+            pending = false;
+          });
+        }
+      }, { passive: true });
     },
   }));
 });
@@ -1506,7 +1685,7 @@ document.addEventListener('alpine:init', () => {
 
 HTML_SHELL = """\
 <!doctype html>
-<html lang="en" data-theme="paper" data-plan-id="{plan_id}">
+<html lang="en" data-theme="{initial_theme}" data-style="{initial_style}" data-font-size="{initial_font_size}" data-plan-id="{plan_id}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1555,10 +1734,31 @@ mermaid.initialize({{
   </div>
   <div class="toolbar-actions">
     <span class="kbd-hint" @click="openPalette()" title="open command palette"><kbd>⌘</kbd><kbd>K</kbd></span>
-    <button :aria-pressed="theme==='paper'"  @click="setTheme('paper')">paper</button>
-    <button :aria-pressed="theme==='sepia'"  @click="setTheme('sepia')">sepia</button>
-    <button :aria-pressed="theme==='dark'"   @click="setTheme('dark')">dark</button>
-    <button :aria-pressed="theme==='arctic'" @click="setTheme('arctic')">arctic</button>
+    <div class="select-wrap" title="viewer style">
+      <select x-model="style" @change="setStyle(style)">
+        <option value="editorial">editorial</option>
+        <option value="terminal">terminal</option>
+        <option value="notebook">notebook</option>
+        <option value="brutalist">brutalist</option>
+      </select>
+    </div>
+    <div class="select-wrap" title="theme">
+      <select x-model="theme" @change="setTheme(theme)">
+        <option value="paper">paper</option>
+        <option value="sepia">sepia</option>
+        <option value="dark">dark</option>
+        <option value="arctic">arctic</option>
+      </select>
+    </div>
+    <div class="select-wrap" title="font size">
+      <select x-model="fontSize" @change="setFontSize(fontSize)">
+        <option value="compact">compact</option>
+        <option value="default">default</option>
+        <option value="large">large</option>
+      </select>
+    </div>
+    <button class="ghost-btn" :aria-pressed="spotlightOn" @click="toggleSpotlight()" title="spotlight cursor">spot</button>
+    <button class="ghost-btn" @click="window.print()" title="print">print</button>
   </div>
 </nav>
 
@@ -1624,7 +1824,7 @@ mermaid.initialize({{
 
 
 def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
-           project_root: Path) -> str:
+           project_root: Path, cfg: dict[str, Any] | None = None) -> str:
     counts: dict[str, int] = {}
     for it in plan["intents"]:
         counts[it["status"]] = counts.get(it["status"], 0) + 1
@@ -1789,6 +1989,12 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
         plan.get("project", "default") + "|"
         + (plan.get("createdAt", "") or "")
     )
+    cfg = cfg or {}
+    initial_style = cfg.get("viewer.style", "editorial")
+    initial_theme = cfg.get("viewer.theme", "paper")
+    initial_font_size = cfg.get("viewer.font_size", "default")
+    initial_spotlight = "true" if cfg.get("viewer.spotlight", True) else "false"
+    initial_palette = "true" if cfg.get("viewer.palette", True) else "false"
     return HTML_SHELL.format(
         title=f"{_esc(plan['project'])} · gpr",
         plan_id=_esc(plan_id),
@@ -1799,4 +2005,9 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
         marginalia=marginalia,
         palette_json=palette_json,
         brand_proj=_esc(plan["project"]),
+        initial_style=_esc(initial_style),
+        initial_theme=_esc(initial_theme),
+        initial_font_size=_esc(initial_font_size),
+        initial_spotlight=initial_spotlight,
+        initial_palette=initial_palette,
     )

@@ -36,6 +36,7 @@ ${C_BOLD}COMMANDS${C_RESET}
   ${C_CYAN}lint${C_RESET}              warn about weak verifyCmds, dependency cycles
   ${C_CYAN}doctor${C_RESET}            check installed agents, python, git, jq
   ${C_CYAN}render${C_RESET}            write a self-contained HTML view of the Plan
+  ${C_CYAN}config${C_RESET}            list / get / set viewer + run defaults
   ${C_CYAN}commit-intent${C_RESET}     write a conventional-commits message for an intent
   ${C_CYAN}pr-description${C_RESET}    write a PR description for the whole run
   ${C_CYAN}confidence-audit${C_RESET}  scrutinise the Plan for loopholes; loop until 100% confident
@@ -291,6 +292,7 @@ case "$cmd" in
   lint)              cmd_lint "$@" ;;
   doctor)            cmd_doctor "$@" ;;
   render)            python3 -m lib.cli render "$@" ;;
+  config)            python3 -m lib.cli config "$@" ;;
   commit-intent)
     # shellcheck source=lib/commit.sh
     source "$GPR_LIB/commit.sh"
