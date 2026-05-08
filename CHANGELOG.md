@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.4 — 2026-05-08
+
+Public-release prep: cross-platform support, community files, dependency automation.
+
+- Linux + Windows now first-class platforms. Desktop notifications add a Windows toast path via `powershell.exe` (System.Windows.Forms balloon); WSL detected via `/proc/version` and falls through to `powershell.exe` if `notify-send` is missing. macOS + Linux unchanged.
+- `gpr doctor` now prints platform info (system / release / machine / Python version) before the dependency check matrix.
+- CI matrix expands to ubuntu-latest + macos-latest + windows-latest, Python 3.10 / 3.11 / 3.12 (9 combos for pytest). e2e dry-run runs on all three under Git Bash for Windows. shellcheck job gains `lib/commit.sh`.
+- `pyproject.toml` adds `Operating System :: Microsoft :: Windows` classifier.
+- README quickstart gains a collapsed platform-specific install block. Native PowerShell / cmd explicitly unsupported; WSL or Git Bash required on Windows.
+- New `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1).
+- New `.github/FUNDING.yml` — Ko-fi link surfaces as the Sponsor button.
+- New `.github/dependabot.yml` — monthly updates for GitHub Actions and pip dev dependencies, scoped commit messages.
+- New `.github/CODEOWNERS` — default review routing.
+- README Roadmap section lists v0.2 priorities (MCP server, audit pipeline hoist, worktree mode, confidence-audit auto-revise, server mode, Layer-2 cost cap).
+
 ## v0.1.3 — 2026-05-08
 
 Architecture pass — five deepening refactors per Matt Pocock's `improve-codebase-architecture` skill applied to the v0.1.2 surface.

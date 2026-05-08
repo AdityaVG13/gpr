@@ -326,12 +326,26 @@ gpr render --watch --auto-refresh 2
 
 ---
 
+## Roadmap
+
+v0.2 work, in priority order:
+
+- **MCP server** (Phase 8). Long-running gpr daemon exposing `pick_intent`, `render_prompt`, `ingest_signal`, `audit`, `steer`, `status` as MCP tools. Any MCP client (Claude / Codex / Cursor) drives gpr without spawning a subprocess per call.
+- **Audit pipeline hoist**. Single `lib/state/audit_pipeline.py` that owns the four audit flavours (Layer-1, Layer-2, reverse, confidence) and their flavour-vs-trigger mapping. Pairs with the MCP work since audit operations become MCP tools.
+- **Worktree mode**. `gpr run --worktree` runs each iteration in a `git worktree` so failed iterations don't pollute the working tree. Auto-merge on success.
+- **Confidence-audit auto-revise**. The loop currently surfaces loopholes for the human to apply manually. Auto-apply the proposed `fix:` strings to Plan.json under fcntl, re-run the audit, exit when confident or after N attempts.
+- **Server mode for the HTML viewer**. `gpr serve` with Server-Sent Events for live updates and inline-edit endpoints (today's editable mode downloads a patch instead).
+- **Layer-2 audit cost cap**. Auto-downgrade to Layer-1 with warning when audit cost exceeds 20% of build cost for an intent.
+
+The interactive PRD viewer is also explicitly WIP — six concept demos under [`docs/examples/`](docs/examples/index.html) sketch patterns we considered but didn't ship in v0.1.x.
+
 ## Reference
 
 - [SKILL.md](install/skill/SKILL.md) — exact instructions Claude follows for one iteration
 - [DESIGN.md](DESIGN.md) — design rationale and credit to prior art
 - [SECURITY.md](SECURITY.md) — threat model and accepted risks
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to add an agent backend, write a check, propose a feature
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1
 - [CHANGELOG.md](CHANGELOG.md) — release notes
 - [examples/hello-fastapi/](examples/hello-fastapi/) — three-intent worked example
 - [docs/examples/](docs/examples/index.html) — six concept demos for the next viewer pass

@@ -1,0 +1,5 @@
+# Default reviewer for everything in the repo.
+# Format: <pattern> <owner1> [<owner2> ...]
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @AdityaVG13
