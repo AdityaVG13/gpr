@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0.0",
+  "project": "example",
+  "goal": "<one-sentence statement of success>",
+  "branch": "main",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "status": "pursuing",
+  "qualityGates": [
+    {
+      "name": "type-check",
+      "cmd": "echo 'replace with: tsc --noEmit / mypy . / cargo check'",
+      "required": true
+    },
+    {
+      "name": "tests",
+      "cmd": "echo 'replace with: vitest run / pytest -q / cargo test'",
+      "required": true
+    }
+  ],
+  "budget": {
+    "tokens": 5000000,
+    "wallClockSeconds": 7200,
+    "maxCostUsd": 25.0
+  },
+  "intents": [
+    {
+      "id": "I001",
+      "title": "Example: scaffold the project",
+      "status": "open",
+      "priority": 10,
+      "dependsOn": [],
+      "checks": [
+        {
+          "id": "C1",
+          "description": "package.json (or pyproject.toml / Cargo.toml) exists with project metadata",
+          "verifyCmd": "test -s package.json && jq -e .name package.json",
+          "timeoutSeconds": 30,
+          "retries": 2
+        }
+      ],
+      "proofs": [],
+      "startedAt": null,
+      "completedAt": null,
+      "auditFailures": []
+    }
+  ],
+  "globalState": {
+    "iteration": 0,
+    "consecutiveSameSignature": 0,
+    "consecutiveBlocked": 0,
+    "lastPayloadHash": null,
+    "lastCheckboxCount": [0, 0],
+    "lastZeroToolCallIter": null,
+    "runStartedAt": null,
+    "wrapUpFlag": false
+  }
+}
