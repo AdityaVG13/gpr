@@ -18,6 +18,11 @@ mkdir -p "$TARGET_SKILL_DIR" "$TARGET_CMD_DIR"
 cp "$INSTALL_SRC/skill/SKILL.md" "$TARGET_SKILL_DIR/SKILL.md"
 log_ok "skill: $TARGET_SKILL_DIR/SKILL.md"
 
+GRILL_TARGET="${HOME}/.claude/skills/gpr-grill"
+mkdir -p "$GRILL_TARGET"
+cp "$INSTALL_SRC/skill/gpr-grill/SKILL.md" "$GRILL_TARGET/SKILL.md"
+log_ok "skill: $GRILL_TARGET/SKILL.md"
+
 for f in "$INSTALL_SRC"/commands/*.md; do
   cp "$f" "$TARGET_CMD_DIR/"
   log_ok "command: $TARGET_CMD_DIR/$(basename "$f")"
