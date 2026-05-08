@@ -296,6 +296,146 @@ def _apply_memory(gpr_dir: Path, memory: dict[str, Any]) -> None:
             spine.write_text(content + "\n")
 
 
+def _git_diff(root: Path, base_ref: str = "HEAD") -> str:
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "diff", base_ref],
+            cwd=str(root),
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+        return out.stdout.decode("utf-8", "replace")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+
+
+def cmd_render_audit_prompt(args: argparse.Namespace) -> int:
+    from . import render as render_mod
+
+    root = _project_root()
+    plan = plan_mod.load(root)
+    intent = plan_mod.find_intent(plan, args.intent)
+    if intent is None:
+        print(f"error: unknown intent {args.intent}", file=sys.stderr)
+        return 1
+    audit_path = Path(args.audit_json) if args.audit_json else None
+    if audit_path and audit_path.exists():
+        try:
+            saved = json.loads(audit_path.read_text())
+            audit_detail = saved.get("audit", {}).get("details", []) or saved.get("details", [])
+        except json.JSONDecodeError:
+            audit_detail = []
+    else:
+        audit_detail = []
+    diff = _git_diff(root, args.diff_base)
+    text = render_mod.audit_check_prompt(plan, intent, audit_detail, diff, _gpr_dir())
+    sys.stdout.write(text)
+    return 0
+
+
+def cmd_ingest_audit_verdict(args: argparse.Namespace) -> int:
+    root = _project_root()
+    text = sys.stdin.read() if args.stdin else (args.text or "")
+    if not text:
+        print("error: pass --stdin or --text", file=sys.stderr)
+        return 1
+    try:
+        verdict = signal_mod.parse_audit_verdict(text)
+    except signal_mod.SignalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if verdict["verdict"] == "fail":
+        with file_lock(plan_mod.lock_path(root)):
+            plan = plan_mod.load(root)
+            intent = plan_mod.find_intent(plan, args.intent)
+            if intent and intent["status"] == "done" and verdict["recommend"] == "revert_to_open":
+                plan_mod.revert_to_open(
+                    plan,
+                    args.intent,
+                    {"reason": "layer2_audit_failed", "verdict": verdict},
+                )
+            plan_mod.save(root, plan)
+
+    events_mod.emit(
+        root,
+        "layer2_audit",
+        {"intent": args.intent, "verdict": verdict},
+    )
+    if args.json:
+        _print_json(verdict)
+    return 0 if verdict["verdict"] == "pass" else 1
+
+
+def cmd_render_reverse_prompt(args: argparse.Namespace) -> int:
+    from . import render as render_mod
+
+    root = _project_root()
+    plan = plan_mod.load(root)
+    diff = _git_diff(root, args.diff_base)
+    text = render_mod.reverse_audit_prompt(plan, diff, _gpr_dir())
+    sys.stdout.write(text)
+    return 0
+
+
+def cmd_ingest_reverse_verdict(args: argparse.Namespace) -> int:
+    root = _project_root()
+    text = sys.stdin.read() if args.stdin else (args.text or "")
+    try:
+        verdict = signal_mod.parse_reverse_audit(text)
+    except signal_mod.SignalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    rec = verdict["recommendation"]
+    if rec == "reopen_intents":
+        with file_lock(plan_mod.lock_path(root)):
+            plan = plan_mod.load(root)
+            for r in verdict["regressions"]:
+                intent_id = r.get("intent")
+                if intent_id and plan_mod.find_intent(plan, intent_id):
+                    plan_mod.revert_to_open(
+                        plan,
+                        intent_id,
+                        {"reason": "reverse_audit_regression", "detail": r},
+                    )
+            plan_mod.save(root, plan)
+    elif rec == "rescope":
+        steer = _gpr_dir() / "Steer.md"
+        existing = steer.read_text() if steer.exists() else ""
+        steer.write_text(
+            "# Reverse-audit recommends rescope\n\n"
+            f"Goal gaps:\n- " + "\n- ".join(verdict["goal_gaps"])
+            + f"\n\n---\n{existing}"
+        )
+    elif rec == "add_intents":
+        steer = _gpr_dir() / "Steer.md"
+        existing = steer.read_text() if steer.exists() else ""
+        steer.write_text(
+            "# Reverse-audit recommends adding intents\n\n"
+            f"Goal gaps that need new intents:\n- " + "\n- ".join(verdict["goal_gaps"])
+            + f"\n\n---\n{existing}"
+        )
+
+    events_mod.emit(root, "reverse_audit", verdict)
+    if args.json:
+        _print_json(verdict)
+    return 0 if verdict["clean"] else 2
+
+
+def cmd_revert_intent(args: argparse.Namespace) -> int:
+    root = _project_root()
+    with file_lock(plan_mod.lock_path(root)):
+        plan = plan_mod.load(root)
+        plan_mod.revert_to_open(plan, args.intent, {"reason": args.reason or "manual_revert"})
+        plan_mod.save(root, plan)
+    if args.json:
+        _print_json({"ok": True, "intent": args.intent})
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     root = _project_root()
     plan = plan_mod.load(root)
@@ -438,6 +578,36 @@ def main() -> int:
     pis.add_argument("--intent", default=None)
     pis.add_argument("--json", action="store_true")
     pis.set_defaults(func=cmd_ingest_signal)
+
+    prap = sub.add_parser("render-audit-prompt")
+    prap.add_argument("--intent", required=True)
+    prap.add_argument("--audit-json", default=None,
+                      help="Path to a saved audit.json from the iter dir")
+    prap.add_argument("--diff-base", default="HEAD")
+    prap.set_defaults(func=cmd_render_audit_prompt)
+
+    piav = sub.add_parser("ingest-audit-verdict")
+    piav.add_argument("--intent", required=True)
+    piav.add_argument("--stdin", action="store_true")
+    piav.add_argument("--text", default=None)
+    piav.add_argument("--json", action="store_true")
+    piav.set_defaults(func=cmd_ingest_audit_verdict)
+
+    prrp = sub.add_parser("render-reverse-prompt")
+    prrp.add_argument("--diff-base", default="HEAD")
+    prrp.set_defaults(func=cmd_render_reverse_prompt)
+
+    pirv = sub.add_parser("ingest-reverse-verdict")
+    pirv.add_argument("--stdin", action="store_true")
+    pirv.add_argument("--text", default=None)
+    pirv.add_argument("--json", action="store_true")
+    pirv.set_defaults(func=cmd_ingest_reverse_verdict)
+
+    pri = sub.add_parser("revert-intent")
+    pri.add_argument("--intent", required=True)
+    pri.add_argument("--reason", default=None)
+    pri.add_argument("--json", action="store_true")
+    pri.set_defaults(func=cmd_revert_intent)
 
     pa = sub.add_parser("audit")
     pa.add_argument("--intent", default=None)

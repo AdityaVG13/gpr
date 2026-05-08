@@ -120,14 +120,55 @@ print(f'{i} {o}')")
   log_info "signal: ${C_BOLD}$sig_status${C_RESET}"
 
   # 8. Audit summary.
-  local audit_summary
+  local audit_summary audit_all_pass
   audit_summary=$(echo "$ingest_json" | python3 -c "
 import sys, json
 d = json.load(sys.stdin); a = d.get('audit')
 if a is None: print('no-audit')
 else: print(f\"audit: {a['pass']}/{a['pass']+a['fail']+a['manual']} pass, all_pass={a['all_pass']}\")")
+  audit_all_pass=$(echo "$ingest_json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin); a = d.get('audit')
+print('true' if a and a.get('all_pass') else 'false')")
   if [[ "$audit_summary" != "no-audit" ]]; then
     log_info "$audit_summary"
+  fi
+
+  # 8b. Layer-2 audit (cross-model verifier) — only on done-flip with audit pass.
+  if [[ "$sig_status" == "done" && "$audit_all_pass" == "true" && "${GPR_DEEP_AUDIT:-0}" == "1" ]]; then
+    local audit_agent="${GPR_AUDIT_AGENT:-$agent}"
+    log_info "Layer-2 audit (agent=$audit_agent)"
+    echo "$ingest_json" > "$iter_dir/audit.json"
+    local audit_prompt_path="$iter_dir/layer2-prompt.md"
+    GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli render-audit-prompt \
+      --intent "$intent_id" \
+      --audit-json "$iter_dir/audit.json" \
+      > "$audit_prompt_path"
+    local layer2_stream="$iter_dir/layer2-stream.log"
+    local layer2_out
+    spinner_start "Layer-2 verifier ($audit_agent)"
+    set +e
+    layer2_out=$(agent_run "$audit_agent" "$layer2_stream" 600 < "$audit_prompt_path")
+    local layer2_rc=$?
+    set -e
+    if (( layer2_rc != 0 )); then
+      spinner_stop warn "Layer-2 agent rc=$layer2_rc; treating as inconclusive"
+    else
+      spinner_stop ok "Layer-2 done"
+      local verdict_json
+      set +e
+      verdict_json=$(echo "$layer2_out" | GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli \
+        ingest-audit-verdict --intent "$intent_id" --stdin --json 2>&1)
+      local v_rc=$?
+      set -e
+      echo "$verdict_json" > "$iter_dir/layer2-verdict.json"
+      if (( v_rc != 0 )); then
+        log_warn "Layer-2 audit FAILED — intent reverted to open"
+        notify layer2 "gpr Layer-2 fail" "intent $intent_id reverted by cross-model verifier"
+      else
+        log_ok "Layer-2 verdict: pass"
+      fi
+    fi
   fi
 
   # 9. Stalemate signature update.
@@ -208,8 +249,14 @@ loop_run() {
     case $rc in
       0) ;;
       9)
-        log_ok "all intents done — running final audit"
-        return 0
+        log_ok "all intents done — running reverse audit"
+        if loop_reverse_audit "$run_dir"; then
+          log_ok "reverse audit clean — achieved"
+          return 0
+        else
+          log_warn "reverse audit found issues; continuing loop"
+          continue
+        fi
         ;;
       *)
         return $rc
@@ -218,4 +265,37 @@ loop_run() {
   done
   log_warn "max iterations reached ($max_iters)"
   return 5
+}
+
+# Run the reverse-audit (spec-drift sweep) before declaring achieved.
+# Returns 0 if clean (achieved), non-zero if regressions/gaps found.
+loop_reverse_audit() {
+  local run_dir="$1"
+  local agent="${GPR_AUDIT_AGENT:-${GPR_AGENT:-claude}}"
+  if [[ "$agent" == "echo" ]]; then
+    log_dim "skipping reverse audit (echo agent)"
+    return 0
+  fi
+  local prompt_path="$run_dir/reverse-audit-prompt.md"
+  GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli render-reverse-prompt > "$prompt_path"
+  local stream="$run_dir/reverse-audit-stream.log"
+  spinner_start "reverse audit ($agent)"
+  set +e
+  local out
+  out=$(agent_run "$agent" "$stream" 900 < "$prompt_path")
+  local rc=$?
+  set -e
+  spinner_stop ok "reverse audit done"
+  if (( rc != 0 )); then
+    log_warn "reverse-audit agent rc=$rc; treating as not-clean"
+    return 1
+  fi
+  local verdict_json
+  set +e
+  verdict_json=$(echo "$out" | GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli \
+    ingest-reverse-verdict --stdin --json 2>&1)
+  local v_rc=$?
+  set -e
+  echo "$verdict_json" > "$run_dir/reverse-audit.json"
+  return $v_rc
 }

@@ -147,6 +147,59 @@ Begin work now. Output your reasoning, then any tool calls, then the signal.
 """
 
 
+def _read_prompt_file(name: str) -> str:
+    here = Path(__file__).resolve().parent.parent
+    return (here / "prompts" / name).read_text()
+
+
+def audit_check_prompt(
+    plan: dict[str, Any],
+    intent: dict[str, Any],
+    audit_detail: list[dict[str, Any]],
+    diff_text: str,
+    gpr_dir: Path,
+) -> str:
+    """Render Layer-2 audit prompt — sent to a (preferably different) model
+    after Layer-1 passes, before declaring an intent done."""
+    base = _read_prompt_file("audit_check.md")
+    proofs_lines = [f"Intent: {intent['id']} — {intent['title']}",
+                    f"Goal: {plan['goal']}",
+                    f"Pinned invariants:\n{_read_or_empty(gpr_dir / 'Pinned.md')}\n",
+                    f"Spine (memory):\n{_read_or_empty(gpr_dir / 'Spine.md')}\n",
+                    "Layer-1 audit detail (per check):"]
+    for d in audit_detail:
+        last = d["attempts"][-1] if d.get("attempts") else {}
+        rc = last.get("rc", "?")
+        proofs_lines.append(f"  - {d['checkId']}: {d['result']}, rc={rc}")
+        stdout = (last.get("stdout") or "").strip()
+        if stdout:
+            proofs_lines.append(f"    stdout: {stdout[-400:]}")
+    proofs_lines.append("\nDiff this iteration applied:\n```\n" + diff_text[-8000:] + "\n```")
+    return base + "\n\n## Inputs (this iteration)\n\n" + "\n".join(proofs_lines)
+
+
+def reverse_audit_prompt(plan: dict[str, Any], diff_text: str, gpr_dir: Path) -> str:
+    """Render reverse-audit prompt — invoked at end-of-run before
+    declaring achieved, to catch spec drift and goal gaps."""
+    base = _read_prompt_file("reverse_audit.md")
+    intents_block = []
+    for it in plan["intents"]:
+        intents_block.append(f"- {it['id']} ({it['status']}): {it['title']}")
+        for ch in it["checks"]:
+            intents_block.append(f"    {ch['id']}: {ch['description']}  [verifyCmd: {ch.get('verifyCmd') or '(manual)'}]")
+    return (
+        base
+        + "\n\n## Plan summary\n\n"
+        + f"Goal: {plan['goal']}\n\nIntents:\n"
+        + "\n".join(intents_block)
+        + "\n\n## Spine\n\n"
+        + _read_or_empty(gpr_dir / "Spine.md")
+        + "\n\n## Cumulative diff\n\n```\n"
+        + diff_text[-12000:]
+        + "\n```"
+    )
+
+
 def continuation(
     plan: dict[str, Any],
     intent: dict[str, Any],

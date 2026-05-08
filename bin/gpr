@@ -97,6 +97,7 @@ cmd_init() {
 
 cmd_run() {
   local agent="claude" max_iters=50 iter_timeout=1800 max_cost=""
+  local deep_audit="0" audit_agent=""
   while (( $# > 0 )); do
     case "$1" in
       --agent) agent="$2"; shift 2 ;;
@@ -104,12 +105,16 @@ cmd_run() {
       --iter-timeout) iter_timeout="$2"; shift 2 ;;
       --max-cost-usd) max_cost="$2"; shift 2 ;;
       --budget) GPR_BUDGET_TOKENS="$2"; export GPR_BUDGET_TOKENS; shift 2 ;;
+      --deep-audit) deep_audit="1"; shift ;;
+      --audit-agent) audit_agent="$2"; shift 2 ;;
       -h|--help)
-        echo "gpr run [--agent claude|codex|opencode|gemini|echo] [--max-iters N] [--iter-timeout SEC] [--max-cost-usd USD]"
+        echo "gpr run [--agent claude|codex|opencode|gemini|echo] [--max-iters N] [--iter-timeout SEC] [--max-cost-usd USD] [--deep-audit] [--audit-agent X]"
         return 0 ;;
       *) log_fail "unknown arg: $1"; return 2 ;;
     esac
   done
+  export GPR_DEEP_AUDIT="$deep_audit"
+  [[ -n "$audit_agent" ]] && export GPR_AUDIT_AGENT="$audit_agent"
   if ! agent_supports "$agent" 2>/dev/null; then
     # shellcheck source=lib/agents.sh
     source "$GPR_LIB/agents.sh"

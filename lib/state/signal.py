@@ -18,11 +18,31 @@ from typing import Any
 
 SIGNAL_OPEN = "---gpr-signal---"
 SIGNAL_CLOSE = "---end---"
+VERDICT_OPEN = "---gpr-audit-verdict---"
+REVERSE_OPEN = "---gpr-reverse-audit---"
 VALID_STATUSES = {"done", "blocked", "decide", "rescope", "progress"}
 VALID_MEMORY_MODES = {"append", "rewrite"}
+VALID_VERDICTS = {"pass", "fail"}
+VALID_RECOMMENDS = {"keep_done", "revert_to_open", "rescope"}
+VALID_REVERSE_RECOMMENDS = {
+    "declare_achieved",
+    "reopen_intents",
+    "add_intents",
+    "rescope",
+}
 
 _PATTERN = re.compile(
     r"^[ \t]*" + re.escape(SIGNAL_OPEN) + r"[ \t]*\n(.*?)\n[ \t]*"
+    + re.escape(SIGNAL_CLOSE) + r"[ \t]*$",
+    re.MULTILINE | re.DOTALL,
+)
+_VERDICT_PATTERN = re.compile(
+    r"^[ \t]*" + re.escape(VERDICT_OPEN) + r"[ \t]*\n(.*?)\n[ \t]*"
+    + re.escape(SIGNAL_CLOSE) + r"[ \t]*$",
+    re.MULTILINE | re.DOTALL,
+)
+_REVERSE_PATTERN = re.compile(
+    r"^[ \t]*" + re.escape(REVERSE_OPEN) + r"[ \t]*\n(.*?)\n[ \t]*"
     + re.escape(SIGNAL_CLOSE) + r"[ \t]*$",
     re.MULTILINE | re.DOTALL,
 )
@@ -115,6 +135,62 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
 def _looks_like_refusal(text: str) -> bool:
     tail = text[-2000:]
     return any(re.search(p, tail, re.IGNORECASE) for p in REFUSAL_PATTERNS)
+
+
+def parse_audit_verdict(text: str) -> dict[str, Any]:
+    """Parse a Layer-2 auditor's verdict block."""
+    matches = list(_VERDICT_PATTERN.finditer(text))
+    if not matches:
+        raise SignalError("no ---gpr-audit-verdict--- block found")
+    raw = matches[-1].group(1).strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SignalError(f"invalid JSON in verdict: {exc}") from exc
+    if data.get("verdict") not in VALID_VERDICTS:
+        raise SignalError(
+            f"verdict must be one of {sorted(VALID_VERDICTS)}, got {data.get('verdict')!r}"
+        )
+    reasons = data.get("reasons") or []
+    if not isinstance(reasons, list) or not all(isinstance(r, str) for r in reasons):
+        raise SignalError("reasons must be a list of strings")
+    if data.get("recommend") not in VALID_RECOMMENDS:
+        raise SignalError(
+            f"recommend must be one of {sorted(VALID_RECOMMENDS)}, got {data.get('recommend')!r}"
+        )
+    return {
+        "verdict": data["verdict"],
+        "reasons": reasons,
+        "recommend": data["recommend"],
+    }
+
+
+def parse_reverse_audit(text: str) -> dict[str, Any]:
+    """Parse a reverse-audit verdict block."""
+    matches = list(_REVERSE_PATTERN.finditer(text))
+    if not matches:
+        raise SignalError("no ---gpr-reverse-audit--- block found")
+    raw = matches[-1].group(1).strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SignalError(f"invalid JSON in reverse audit: {exc}") from exc
+    if not isinstance(data.get("clean"), bool):
+        raise SignalError("clean must be a boolean")
+    regs = data.get("regressions") or []
+    gaps = data.get("goal_gaps") or []
+    if not isinstance(regs, list) or not isinstance(gaps, list):
+        raise SignalError("regressions and goal_gaps must be lists")
+    if data.get("recommendation") not in VALID_REVERSE_RECOMMENDS:
+        raise SignalError(
+            f"recommendation must be one of {sorted(VALID_REVERSE_RECOMMENDS)}"
+        )
+    return {
+        "clean": data["clean"],
+        "regressions": regs,
+        "goal_gaps": gaps,
+        "recommendation": data["recommendation"],
+    }
 
 
 def render_help() -> str:
