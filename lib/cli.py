@@ -16,6 +16,7 @@ from typing import Any
 
 from .state import audit as audit_mod
 from .state import budget as budget_mod
+from .state import channels as channels_mod
 from .state import events as events_mod
 from .state import plan as plan_mod
 from .state import redact as redact_mod
@@ -210,7 +211,7 @@ def cmd_ingest_signal(args: argparse.Namespace) -> int:
         print("error: pass --stdin or --text", file=sys.stderr)
         return 1
     try:
-        sig = signal_mod.parse(text)
+        sig = channels_mod.parse("signal", text)
     except signal_mod.SignalError as exc:
         print(f"error: invalid signal: {exc}", file=sys.stderr)
         return 1
@@ -350,7 +351,7 @@ def cmd_ingest_audit_verdict(args: argparse.Namespace) -> int:
         print("error: pass --stdin or --text", file=sys.stderr)
         return 1
     try:
-        verdict = signal_mod.parse_audit_verdict(text)
+        verdict = channels_mod.parse("audit_verdict", text)
     except signal_mod.SignalError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -392,7 +393,7 @@ def cmd_ingest_reverse_verdict(args: argparse.Namespace) -> int:
     root = _project_root()
     text = sys.stdin.read() if args.stdin else (args.text or "")
     try:
-        verdict = signal_mod.parse_reverse_audit(text)
+        verdict = channels_mod.parse("reverse_audit", text)
     except signal_mod.SignalError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -444,7 +445,7 @@ def cmd_render_confidence_prompt(args: argparse.Namespace) -> int:
 def cmd_ingest_confidence(args: argparse.Namespace) -> int:
     text = sys.stdin.read() if args.stdin else (args.text or "")
     try:
-        verdict = signal_mod.parse_confidence_audit(text)
+        verdict = channels_mod.parse("confidence_audit", text)
     except signal_mod.SignalError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -502,7 +503,7 @@ def cmd_render_commit_prompt(args: argparse.Namespace) -> int:
 def cmd_ingest_commit(args: argparse.Namespace) -> int:
     text = sys.stdin.read() if args.stdin else (args.text or "")
     try:
-        msg = signal_mod.parse_commit_message(text)
+        msg = channels_mod.parse("commit", text)
     except signal_mod.SignalError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -537,7 +538,7 @@ def cmd_render_pr_prompt(args: argparse.Namespace) -> int:
 def cmd_ingest_pr(args: argparse.Namespace) -> int:
     text = sys.stdin.read() if args.stdin else (args.text or "")
     try:
-        pr = signal_mod.parse_pr_description(text)
+        pr = channels_mod.parse("pr", text)
     except signal_mod.SignalError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

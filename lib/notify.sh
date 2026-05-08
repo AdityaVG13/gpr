@@ -24,6 +24,14 @@ _notify_should_fire() {
 }
 
 notify() {
+  # Smoke-test guard: echo agent runs are dry-runs, never notify.
+  if [[ "${GPR_AGENT:-}" == "echo" ]]; then
+    return 0
+  fi
+  # Explicit kill-switch for users who never want desktop notifications.
+  if [[ "${GPR_NO_NOTIFY:-}" == "1" ]]; then
+    return 0
+  fi
   local kind="$1" title="$2" body="$3"
   if ! _notify_should_fire "$kind"; then
     return 0
