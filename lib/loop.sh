@@ -19,7 +19,8 @@ source "$GPR_LIB/notify.sh"
 loop_iteration() {
   local agent="$1" iter="$2" run_dir="$3" iter_timeout="${4:-1800}"
 
-  local iter_dir="$run_dir/iter-$(printf '%04d' "$iter")"
+  local iter_dir
+  iter_dir="$run_dir/iter-$(printf '%04d' "$iter")"
   mkdir -p "$iter_dir"
 
   # 1. Disk-space pre-check (need ≥ 1GB free).
@@ -30,10 +31,9 @@ loop_iteration() {
     return 8
   fi
 
-  # 2. Steer.md FIRST. If non-empty, treat this iter as a steer-handler turn.
-  local steer_text=""
+  # 2. Steer.md FIRST. If non-empty, the prompt template will pick it up; we
+  # just log a warning so the operator sees the loop noticed.
   if [[ -s ".gpr/Steer.md" ]]; then
-    steer_text=$(cat .gpr/Steer.md)
     log_warn "Steer.md non-empty — agent will handle steer this iter"
   fi
 

@@ -87,8 +87,26 @@ def status(plan: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
     """Compare current spend against plan budget; return status dict.
 
     fraction_used is the max across all configured budget axes.
+    Env vars GPR_BUDGET_TOKENS, GPR_BUDGET_WALL_SECONDS, and
+    GPR_BUDGET_MAX_COST_USD override the Plan budget when set.
     """
-    budget = plan.get("budget") or {}
+    import os
+    budget = dict(plan.get("budget") or {})
+    if os.environ.get("GPR_BUDGET_TOKENS"):
+        try:
+            budget["tokens"] = int(os.environ["GPR_BUDGET_TOKENS"])
+        except ValueError:
+            pass
+    if os.environ.get("GPR_BUDGET_WALL_SECONDS"):
+        try:
+            budget["wallClockSeconds"] = int(os.environ["GPR_BUDGET_WALL_SECONDS"])
+        except ValueError:
+            pass
+    if os.environ.get("GPR_BUDGET_MAX_COST_USD"):
+        try:
+            budget["maxCostUsd"] = float(os.environ["GPR_BUDGET_MAX_COST_USD"])
+        except ValueError:
+            pass
     fractions: list[tuple[str, float]] = []
     if budget.get("tokens"):
         used = state["tokensInput"] + state["tokensOutput"]

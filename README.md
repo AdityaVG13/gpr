@@ -8,6 +8,7 @@ A CLI that drives a coding agent through an audit-verified Plan.
 [![Tests](https://img.shields.io/badge/tests-76_passing-emerald?style=flat-square)](tests/)
 [![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![Ko-fi](https://img.shields.io/badge/ko--fi-support-FF5E5B?style=flat-square&logo=kofi&logoColor=white)](https://ko-fi.com/adityavg13)
 
 ![demo](docs/demo.gif)
 
@@ -35,7 +36,7 @@ Or, if you're already in a Claude Code TUI session inside a project:
 
 That bootstraps the Plan via an interactive interview (`gpr-grill`), runs the loop one iteration at a time, and yields back to you between rounds. Type `/gpr` again to advance, `/gpr-steer ...` to redirect.
 
-[back to top](#gpr)
+> **Auth.** gpr never handles credentials. It spawns whichever agent CLI you point it at (`claude`, `codex`, `opencode`, `gemini`) as a subprocess; that CLI uses its own auth. So `claude` running on your Claude Code subscription session works exactly as well as one configured with `ANTHROPIC_API_KEY`.
 
 ---
 
@@ -69,8 +70,6 @@ Every gpr run starts from a `Plan.json` — a real spec the loop reads on every 
 
 The agent can't mark `I001` done by saying so. The loop runs the `verifyCmd`. If it returns 0, the intent flips done. If it returns non-zero, the intent reverts to open and the failure goes into the next iteration's prompt.
 
-[back to top](#gpr)
-
 ---
 
 ## Why this exists
@@ -86,8 +85,6 @@ The naive ralph loop (`while true: claude -p prompt.md`) has five well-known fai
 | Lost human control | Need to kill and restart to redirect | `Steer.md` interrupt file the agent reads first every round |
 
 There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up), a spec-drift sweep that re-runs old verifyCmds against the current state, and a `RESCOPE` signal for when the agent decides the plan itself is wrong.
-
-[back to top](#gpr)
 
 ---
 
@@ -113,24 +110,24 @@ There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up)
   <img src="docs/status.png" alt="gpr status" width="640">
 </p>
 
-[back to top](#gpr)
-
 ---
 
 ## The interactive PRD viewer
 
-`gpr render` writes a single self-contained HTML file. No build step, no server, opens via `file://`. Four themes, four styles, three font sizes, all toggleable from the toolbar.
+`gpr render` writes a single self-contained HTML file. No build step, no server, opens via `file://`. Four styles, four themes, three font sizes — all toggleable from the toolbar or `gpr config`.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/theme-paper.png" alt="paper theme" width="100%"><br><sub><b>paper</b> · cream background, warm serif body</sub></td>
-<td width="50%"><img src="docs/theme-sepia.png" alt="sepia theme" width="100%"><br><sub><b>sepia</b> · book-like, deeper contrast for long reads</sub></td>
+<td width="50%"><img src="docs/style-editorial.png" alt="editorial style" width="100%"><br><sub><b>editorial</b> · serif body on warm paper, mono metadata in small caps</sub></td>
+<td width="50%"><img src="docs/style-terminal.png" alt="terminal style" width="100%"><br><sub><b>terminal</b> · JetBrains Mono everywhere, hard borders, no shadows</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/theme-dark.png" alt="dark theme" width="100%"><br><sub><b>dark</b> · low-light, mix-blend-mode inverted spotlight</sub></td>
-<td width="50%"><img src="docs/theme-arctic.png" alt="arctic theme" width="100%"><br><sub><b>arctic</b> · cool pale blue, deeper accent</sub></td>
+<td width="50%"><img src="docs/style-notebook.png" alt="notebook style" width="100%"><br><sub><b>notebook</b> · clean Inter-style sans, tighter heading scale, dense</sub></td>
+<td width="50%"><img src="docs/style-brutalist.png" alt="brutalist style" width="100%"><br><sub><b>brutalist</b> · system-mono, uppercase, thick borders, no transitions</sub></td>
 </tr>
 </table>
+
+Themes (paper / sepia / dark / arctic) layer on top of any style, switching colors without changing the typography. Pick one combination, persist it via `gpr config set viewer.style notebook` and `gpr config set viewer.theme dark`.
 
 What's in there:
 
@@ -158,8 +155,6 @@ gpr render --watch --auto-refresh 2
 
 The viewer is a work in progress. Six concept demos for patterns we considered live in [`docs/examples/`](docs/examples/index.html) — per-intent rings, Tufte sidenotes, Tangle scrubbable metrics, Matuschak stacked columns, diff overlay, inline-edit patch export. If a pattern there matches a need or you've seen better, file an issue or send a PR.
 
-[back to top](#gpr)
-
 ---
 
 ## Two ways to invoke
@@ -171,8 +166,6 @@ The viewer is a work in progress. Six concept demos for patterns we considered l
 
 An MCP server (Mode C, accessible from Codex / Cursor / any MCP client) is on the roadmap once usage settles.
 
-[back to top](#gpr)
-
 ---
 
 ## The /gpr-grill flow
@@ -180,8 +173,6 @@ An MCP server (Mode C, accessible from Codex / Cursor / any MCP client) is on th
 `/gpr` without an existing Plan activates **gpr-grill** — a cleanroom interactive interview that walks you through nine beats: persona, goal lock, success metric, tech stack, anti-goals, intent decomposition, per-intent checks, budget, and a confidence audit. One question per turn. Refuses hand-waving and weak `verifyCmd`s.
 
 The confidence audit is the safety net. Before the loop runs, `gpr confidence-audit` invokes a scrutiniser agent that inspects the Plan for eight categories of loophole — goal coverage, DAG sanity, gameable verifyCmds, missing quality gates, Pinned-invariant contradictions, unrealistic budget, uncovered anti-goals, audit-cost vs work-cost. The interview loops until the auditor returns `confident: true` or you explicitly waive a remaining loophole into `.gpr/Pinned.md`.
-
-[back to top](#gpr)
 
 ---
 
@@ -198,8 +189,6 @@ The confidence audit is the safety net. Before the loop runs, `gpr confidence-au
 | Spec-drift sweep | — | — | — | — | yes |
 | Multi-agent | partial | yes | yes | — | yes |
 | Replay forensics | — | — | — | — | yes |
-
-[back to top](#gpr)
 
 ---
 
@@ -318,8 +307,6 @@ gpr render --watch --auto-refresh 2
 
 </details>
 
-[back to top](#gpr)
-
 ---
 
 ## Reference
@@ -332,8 +319,6 @@ gpr render --watch --auto-refresh 2
 - [examples/hello-fastapi/](examples/hello-fastapi/) — three-intent worked example
 - [docs/examples/](docs/examples/index.html) — six concept demos for the next viewer pass
 
-[back to top](#gpr)
-
 ---
 
 ## Credits
@@ -345,19 +330,15 @@ Two skills not in this repo gave gpr good ideas to bake into the loop:
 
 Borrowed ideas are credited in [DESIGN.md](DESIGN.md) with specifics on what was kept, what was changed, and why.
 
-[back to top](#gpr)
-
 ---
 
 ## Support
 
 Open source is a passion project. If gpr saves you a round of agent compute or an hour of debugging, a small tip keeps the next iteration coming.
 
-<a href="https://ko-fi.com/adityavg13"><img src="https://img.shields.io/badge/ko--fi-support_gpr-FF5E5B?style=flat-square&logo=kofi&logoColor=white" alt="Support on Ko-fi"></a>
-
-[ko-fi.com/adityavg13](https://ko-fi.com/adityavg13)
-
-[back to top](#gpr)
+<p>
+  <a href="https://ko-fi.com/adityavg13"><img height="48" src="https://storage.ko-fi.com/cdn/kofi5.png?v=3" alt="Support gpr on Ko-fi"></a>
+</p>
 
 ---
 

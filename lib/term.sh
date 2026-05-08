@@ -16,16 +16,16 @@ if (( __TTY )); then
   C_GREEN=$'\033[38;5;114m'
   C_YELLOW=$'\033[38;5;221m'
   C_BLUE=$'\033[38;5;111m'
-  C_MAGENTA=$'\033[38;5;176m'
   C_CYAN=$'\033[38;5;116m'
   C_GRAY=$'\033[38;5;245m'
   C_WHITE=$'\033[38;5;255m'
-  C_ORANGE=$'\033[38;5;215m'
 else
   C_RESET=''; C_DIM=''; C_BOLD=''
   C_RED=''; C_GREEN=''; C_YELLOW=''; C_BLUE=''
-  C_MAGENTA=''; C_CYAN=''; C_GRAY=''; C_WHITE=''; C_ORANGE=''
+  C_CYAN=''; C_GRAY=''; C_WHITE=''
 fi
+# shellcheck disable=SC2034
+export C_RESET C_DIM C_BOLD C_RED C_GREEN C_YELLOW C_BLUE C_CYAN C_GRAY C_WHITE
 
 # Print a horizontal rule the width of the terminal.
 hr() {
