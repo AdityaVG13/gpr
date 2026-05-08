@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.6 — 2026-05-08
+
+Loop ingest fix.
+
+- **Fix: signal ingest silently dropped on `claude --output-format stream-json`.** The continuation prompt's structured trailer block (`---gpr-signal---` … `---end---`) lives inside the `result` field of the final `{"type":"result"}` line, with embedded newlines JSON-escaped (`\n`). The channel regexes require real newlines, so every iteration's ingest failed → the intent stayed `in_progress` → `mark_done` / `apply_memory` / `revert_to_open` never fired → cumulative cost crossed the cap and the loop exited `budget_limited` after iter 1, looking like a crash. `lib/state/channels.py` now normalises stream-json input at the dispatch boundary by joining `result` strings and `assistant` `text` content with real newlines before handing the text to the channel parser. Plaintext output from codex / opencode / gemini / echo passes through unchanged (no JSON-line shape, nothing to unwrap). Covers all six channels via the single `channels.parse()` seam — no per-parser duplication.
+- **Tests:** `tests/test_channels.py` covers the new normaliser (stream-json `result`, assistant `text` content arrays, plaintext pass-through, audit-verdict over stream-json, no-block-still-raises). 82 tests pass.
+
 ## v0.1.5 — 2026-05-08
 
 Loop reliability + agent-control surface.

@@ -19,10 +19,58 @@ file, no new argparse handler.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import signal as signal_mod
+
+
+def _normalize_agent_output(text: str) -> str:
+    """Return plain agent text, transparently unwrapping `claude --output-format
+    stream-json` line-delimited JSON.
+
+    The agent's structured trailer block (`---gpr-signal---` …) lives inside the
+    `result` field of the final `{"type":"result"}` message and inside the
+    `text` fields of `{"type":"assistant"}` content arrays. In stream-json mode
+    the embedded newlines are JSON-escaped (`\\n`), so the channel regexes —
+    which require real newlines — never match. We pull the textual payload out
+    of every JSON line we can recognise and concatenate it with real newlines.
+
+    If `text` is not stream-json (no JSON lines, or no extractable text), it is
+    returned unchanged so the existing parsers still see plaintext input.
+    """
+    pieces: list[str] = []
+    matched_any = False
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or not (s.startswith("{") and s.endswith("}")):
+            continue
+        try:
+            obj = json.loads(s)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if "type" not in obj:
+            continue
+        matched_any = True
+        result = obj.get("result")
+        if isinstance(result, str) and result:
+            pieces.append(result)
+            continue
+        message = obj.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        t = part.get("text")
+                        if isinstance(t, str) and t:
+                            pieces.append(t)
+    if not matched_any or not pieces:
+        return text
+    return "\n".join(pieces)
 
 
 @dataclass(frozen=True)
@@ -92,7 +140,7 @@ def get(name: str) -> Channel:
 def parse(name: str, text: str) -> Any:
     """Dispatch parsing to the named channel's parser. Raises SignalError on
     bad input or KeyError on unknown channel name."""
-    return get(name).parser(text)
+    return get(name).parser(_normalize_agent_output(text))
 
 
 def list_channels() -> list[dict[str, str]]:
