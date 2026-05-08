@@ -7,12 +7,36 @@ description: Interactive spec-gathering for gpr. Walk the user through goal refi
 
 You are interviewing the user to turn a fuzzy goal into a structured Plan that gpr can drive. The output is a single `.gpr/Plan.json` written by you. The interview is not a script: ask one question at a time, integrate the answer, and only continue if the answer was concrete enough to act on.
 
+## Preflight — existing-Plan guard (run FIRST)
+
+Before any beats, check whether `.gpr/Plan.json` already exists in the cwd:
+
+```bash
+ls -1 .gpr/Plan.json 2>/dev/null
+```
+
+If it exists, **do not overwrite it silently**. Show the user the current goal and intent count (`gpr status` is the cheapest way) and ask them to choose explicitly:
+
+> "Existing `.gpr/Plan.json` found — goal: «…», N intents. Choose one:
+> 1. **Revise** — keep the structure, edit specific fields you call out.
+> 2. **Rewrite** — back up the existing plan to `.gpr/Plan.json.bak.<timestamp>` and start fresh from beat 0.
+> 3. **Abort** — stop the grill and leave the plan untouched."
+
+Only proceed to the beats if the user picks 2 (rewrite) or 1 (revise — and in that case, jump straight to the specific fields they want changed; do not re-run beats they don't want re-run). On rewrite, perform the backup with `cp .gpr/Plan.json .gpr/Plan.json.bak.$(date +%Y%m%dT%H%M%S)` before any Write to Plan.json.
+
+The same guard applies if the user runs `gpr lint` or `gpr confidence-audit` and the agent (you) decides revisions are needed: never `Write` Plan.json without showing the user the diff and getting explicit "yes, save" first.
+
 ## Hard rules
 
 - **One question per turn.** Wait for the user's reply before moving to the next.
 - **Ask only questions whose answers will change the Plan.** If you can answer it yourself by reading the current working directory (existing `package.json`, `pyproject.toml`, `README.md`, etc.), do that and confirm with the user instead of asking blind.
 - **Refuse hand-waving.** If the user answers vaguely ("just make it good", "you decide"), ask a sharper follow-up. Do not proceed with placeholders.
 - **Concrete over abstract.** Every Check must have a `verifyCmd` that can pass or fail deterministically. If the user can only describe a check in prose, reject it and rephrase as a command.
+- **Never overwrite Plan.json without explicit user confirmation.** This rule overrides the "one question per turn" rule when triggered.
+
+## Fast mode
+
+If the user invokes the grill with "fast", "quick", or "express" (e.g. `/gpr-grill fast`), batch beats 0–4 into a SINGLE turn: read the working directory, draft the persona + goal + success metric + stack + anti-goals all at once from what you can infer, and present the whole bundle as one structured proposal. The user replies with corrections; you integrate them and move to beat 5. This trades depth for speed — only use when the user has signalled they want it.
 
 ## The nine beats
 
@@ -148,11 +172,15 @@ When all nine beats are complete, write `.gpr/Plan.json` directly with the Write
 
 Then write `.gpr/Pinned.md` with the Beat-3 stack and Beat-4 anti-goals.
 
-Then run `gpr lint` via Bash for the deterministic warnings (weak verifyCmds, unknown deps, dependency cycles). Walk the user through each one.
+Then run `gpr lint` via Bash for the deterministic warnings (weak verifyCmds, unknown deps, dependency cycles). Walk the user through each one. **Lint itself never writes** — if a warning needs a fix, show the user the proposed change and ask before editing Plan.json.
 
-Then run `gpr confidence-audit` via Bash for the model-driven scrutiny. Walk the user through every loophole one at a time. Apply fixes by editing Plan.json directly. Re-run the audit. Repeat until `confident: true` or the user has waived all remaining loopholes into Pinned.md.
+Then run `gpr confidence-audit` via Bash for the model-driven scrutiny. Walk the user through every loophole one at a time. Show the proposed Plan.json edit for each loophole and ask before applying. Re-run the audit. Repeat until `confident: true` or the user has waived all remaining loopholes into Pinned.md.
 
-Finally: print a one-line summary and ask whether to start the loop now (`/gpr` to begin first iteration) or to review the Plan first.
+Finally: ask the user whether to open the rendered Plan in the browser before starting the loop:
+
+> "Plan written. Open the HTML view in your browser to review? (`gpr render --open`)"
+
+If yes, run `gpr render --open` via Bash. Then print a one-line summary and ask whether to start the loop now (`/gpr` to begin first iteration) or to review the Plan first.
 
 ## What this skill is not
 
