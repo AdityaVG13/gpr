@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.1.2 — 2026-05-08
+
+- Interactive PRD viewer rebuilt around Alpine.js with a three-column layout (sticky TOC rail + paper card + marginalia). New: command palette (`⌘K`), keyboard navigation (`J`/`K`/`/`/`?`/`S`/`D`), per-intent reading-progress rings, hash-on-hover anchors with copy-link toast, scroll-triggered fade-up, click-to-zoom Mermaid graph via `svg-pan-zoom`, story mode that strips chrome to a single 720px column, four selectable styles (editorial / terminal / notebook / brutalist), four themes (paper / sepia / dark / arctic), three font sizes, opt-in inline-edit mode that downloads a unified-diff patch, diff overlay against the latest snapshot, six concept demos under `docs/examples/`.
+- New `gpr config get|set|list|unset|reset|keys` subcommand backed by `~/.config/gpr/config.json` (user) + `.gpr/viewer-config.json` (project) + env-var overrides. Persistent viewer + run defaults.
+- New `gpr render --watch` re-renders on every state-file change; `--auto-refresh N` embeds a meta-refresh tag for hands-off live previews while a run is going. `--style`, `--theme`, `--no-spotlight` per-render overrides.
+- New `gpr-grill` skill: nine-beat cleanroom interactive Plan interview (persona, goal lock, success metric, tech stack, anti-goals, decomposition, checks, budget, confidence audit). Refuses hand-waving and weak `verifyCmd`s.
+- New `gpr confidence-audit`: scrutiniser agent inspects a draft Plan for eight loophole categories before the loop runs. Loops until `confident: true` or the user waives a remaining loophole into Pinned.md.
+- `gpr run --deep-audit` wires the Layer-2 cross-model auditor on every done-flip after Layer-1 passes. Reverse audit runs at end-of-run to catch spec drift; reopens regressed intents or writes goal gaps to Steer.md.
+- New `gpr commit-intent <ID>` and `gpr pr-description` apply the staged-pr discipline (Conventional Commits with scope, conceptual bullets organised by concept, no filler verbs) to gpr's own outputs.
+- New `gpr trace`, `gpr audit --reverse`, `gpr revert-intent`.
+- Persona priming on every prompt: four registered personas (`principal_engineer`, `senior_architect`, `rapid_prototyper`, `research_partner`) selected per-Plan. Continuation prompt restructured with PERSONA at top, RULES + FINAL CONSTRAINT at the bottom (Gemini recency-bias defence). Auditor prompts each get a tailored suspicious / fresh-eyed prime.
+- `--max-cost-usd` flag now wired through `GPR_BUDGET_MAX_COST_USD`; `lib/state/budget.py` honours env-var overrides for all three axes.
+- Security hardening: `SECURITY.md` documents the threat model (`shell=True` is by-design, agent gets full FS access, env vars inherited, prompt injection mitigated not eliminated). `.gitignore` covers `.env*` / keys / credentials. `errors.log` redacted before injection. Lint catches `\|\| true` failure-swallowing and oversize fields.
+- Hardcoded developer paths removed: `lib/loop.sh` derives `GPR_LIB` via `BASH_SOURCE`, `docs/demo.tape` uses `$GPR_HOME`. CI shellcheck now passes warning-level.
+- 76 tests (up from 60). New tests cover plan/signal/audit/stalemate/budget/lock/redact/verdict parsers + e2e dry-run.
+
 ## v0.1.1 — 2026-05-08
 
 - `gpr run --deep-audit` wires the Layer-2 cross-model auditor in. Done-flips that pass Layer-1 are now scrutinised by a second agent (defaults to the build agent; `--audit-agent X` overrides) before the intent stays done.
