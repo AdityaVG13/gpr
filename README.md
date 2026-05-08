@@ -119,11 +119,18 @@ There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up)
 
 ## The interactive PRD viewer
 
-`gpr render` writes a single self-contained HTML file. No build step, no server, opens via `file://`.
+`gpr render` writes a single self-contained HTML file. No build step, no server, opens via `file://`. Four themes, four styles, three font sizes, all toggleable from the toolbar.
 
-<p align="center">
-  <img src="docs/render.png" alt="gpr render" width="720">
-</p>
+<table>
+<tr>
+<td width="50%"><img src="docs/theme-paper.png" alt="paper theme" width="100%"><br><sub><b>paper</b> · cream background, warm serif body</sub></td>
+<td width="50%"><img src="docs/theme-sepia.png" alt="sepia theme" width="100%"><br><sub><b>sepia</b> · book-like, deeper contrast for long reads</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/theme-dark.png" alt="dark theme" width="100%"><br><sub><b>dark</b> · low-light, mix-blend-mode inverted spotlight</sub></td>
+<td width="50%"><img src="docs/theme-arctic.png" alt="arctic theme" width="100%"><br><sub><b>arctic</b> · cool pale blue, deeper accent</sub></td>
+</tr>
+</table>
 
 What's in there:
 
@@ -337,6 +344,18 @@ Two skills not in this repo gave gpr good ideas to bake into the loop:
 - **[mdrxy/staged-pr](https://gist.github.com/mdrxy/7ed93ddeac5706bce0318e7c4b436efd)**. Source of the conventional-commits-with-scope discipline, the conceptual-bullets-not-by-file rule, the noise filter, and the explicit anti-pattern list. `gpr commit-intent` and `gpr pr-description` apply that discipline to gpr's own outputs.
 
 Borrowed ideas are credited in [DESIGN.md](DESIGN.md) with specifics on what was kept, what was changed, and why.
+
+[back to top](#gpr)
+
+---
+
+## Support
+
+Open source is a passion project. If gpr saves you a round of agent compute or an hour of debugging, a small tip keeps the next iteration coming.
+
+<a href="https://ko-fi.com/adityavg13"><img src="https://img.shields.io/badge/ko--fi-support_gpr-FF5E5B?style=flat-square&logo=kofi&logoColor=white" alt="Support on Ko-fi"></a>
+
+[ko-fi.com/adityavg13](https://ko-fi.com/adityavg13)
 
 [back to top](#gpr)
 
