@@ -858,6 +858,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if name == "git" and not path:
             rc = 1
 
+    timeout_path = shutil.which("timeout") or shutil.which("gtimeout")
+    out["checks"].append({"name": "timeout", "ok": bool(timeout_path), "path": timeout_path})
+
     out["ok"] = rc == 0
     if args.json:
         _print_json(out)

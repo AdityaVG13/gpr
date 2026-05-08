@@ -80,6 +80,22 @@ _agent_argv() {
   esac
 }
 
+# Resolve a timeout-runner. Linux ships GNU coreutils (`timeout`),
+# Homebrew on macOS provides `gtimeout`. If neither is available the
+# wrapper degrades to a no-op so the agent still runs (the per-agent
+# CLI usually has its own internal limits). Echoes the runner argv,
+# space-separated; empty string means "run with no wall-clock cap".
+_agent_resolve_timeout() {
+  local secs="$1"
+  if command -v timeout >/dev/null 2>&1; then
+    printf 'timeout %s' "$secs"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    printf 'gtimeout %s' "$secs"
+  else
+    printf ''
+  fi
+}
+
 # Generic binary-invocation path. Reads the prompt on stdin, looks up
 # argv via _agent_argv, runs under `timeout`, tees stream output. Prints
 # raw stdout to its caller.
@@ -104,7 +120,14 @@ _agent_run_generic() {
   local prompt
   prompt="$(cat)"
   local raw
-  raw="$(timeout "$timeout_sec" "${argv[@]}" "$prompt" 2>&1 | tee "$stream_log")"
+  local timeout_argv
+  timeout_argv=$(_agent_resolve_timeout "$timeout_sec")
+  if [[ -n "$timeout_argv" ]]; then
+    # shellcheck disable=SC2086
+    raw="$($timeout_argv "${argv[@]}" "$prompt" 2>&1 | tee "$stream_log")"
+  else
+    raw="$("${argv[@]}" "$prompt" 2>&1 | tee "$stream_log")"
+  fi
   printf '%s' "$raw"
 }
 
