@@ -61,7 +61,7 @@ There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up)
   <img src="docs/status.png" alt="gpr status output" width="640">
 </p>
 
-`gpr render` produces a self-contained HTML dashboard with the intent DAG (Mermaid), per-check evidence glyphs, and a rolling event log. The aesthetic borrows from [makingsoftware.com](https://makingsoftware.com): editorial serif body on a warm card, mono metadata in small-caps, hairline rules, cobalt accent. No build step — Tailwind and Mermaid via CDN.
+`gpr render` produces a self-contained interactive HTML dashboard. Sticky table-of-contents with live completion glyphs, URL-hash deep linking, filter chips with localStorage persistence, keyboard navigation (`j`/`k` to walk intents, `/` to filter, `?` for shortcuts), one-click copy on every `verifyCmd`, panzoom on the intent DAG. Editorial serif body on a paper card, mono metadata in small caps. Single file — Tailwind and Mermaid via CDN, vanilla JS, no build step.
 
 <p align="center">
   <img src="docs/render.png" alt="gpr render — Plan.html" width="720">
@@ -167,8 +167,6 @@ Two skills not in this repo gave gpr good ideas to bake into the loop:
 
 - **[mattpocock/skills](https://github.com/mattpocock/skills)** — Matt Pocock's small, composable engineering skills. The `grill-with-docs` skill in particular shaped how `gpr-grill` interviews the user beat by beat with refusal rules instead of running a one-shot template fill. The `tdd` and `improve-codebase-architecture` skills informed the test-discipline and module-shape choices in the `lib/state/` layer. MIT licensed; thank you Matt.
 - **[mdrxy/staged-pr](https://gist.github.com/mdrxy/7ed93ddeac5706bce0318e7c4b436efd)** — the staged-pr skill is the source of the conventional-commits-with-scope discipline, the conceptual-bullets-not-by-file rule, the noise filter (skip lockfiles, generated code, dependency bumps), and the explicit anti-pattern list (no "this PR…", no "going forward", no "leverages" without specifics). `gpr commit-intent` and `gpr pr-description` apply that discipline to gpr's own outputs.
-
-The visual aesthetic of `gpr render` borrows from **[makingsoftware.com](https://makingsoftware.com)** — editorial serif body, mono metadata in small caps, paper-edge shadow on a single white card, cobalt accent. CSS rewritten from cold; no styles copied.
 
 All borrowed ideas are credited in [DESIGN.md](DESIGN.md) with specifics on what was kept, what was changed, and why.
 
