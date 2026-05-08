@@ -61,7 +61,11 @@ There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up)
   <img src="docs/status.png" alt="gpr status output" width="640">
 </p>
 
-`gpr render` produces a self-contained HTML dashboard with the intent DAG (Mermaid), per-check evidence glyphs, and a rolling event log. No build step — Tailwind and Mermaid via CDN.
+`gpr render` produces a self-contained HTML dashboard with the intent DAG (Mermaid), per-check evidence glyphs, and a rolling event log. The aesthetic borrows from [makingsoftware.com](https://makingsoftware.com): editorial serif body on a warm card, mono metadata in small-caps, hairline rules, cobalt accent. No build step — Tailwind and Mermaid via CDN.
+
+<p align="center">
+  <img src="docs/render.png" alt="gpr render — Plan.html" width="720">
+</p>
 
 ## How it works
 
@@ -131,7 +135,9 @@ An MCP server (Mode C) is on the roadmap once usage patterns settle.
 
 ## The /gpr-grill flow
 
-If you start `/gpr` without an existing Plan, it activates **gpr-grill** — a cleanroom interactive spec interview that walks you through goal lock, success metric, tech stack, anti-goals, intent decomposition, per-intent checks, and budget. Seven beats, one question per turn, refuses hand-waving and weak `verifyCmd`s. Output is a complete `.gpr/Plan.json` ready for the loop.
+If you start `/gpr` without an existing Plan, it activates **gpr-grill** — a cleanroom interactive spec interview that walks you through goal lock, success metric, tech stack, anti-goals, intent decomposition, per-intent checks, budget, and finally a **confidence audit**. Eight beats, one question per turn, refuses hand-waving and weak `verifyCmd`s.
+
+The confidence audit is the safety net. Before the loop is allowed to run, `gpr confidence-audit` invokes a scrutiniser agent that inspects the Plan for eight categories of loophole — goal coverage, DAG sanity, gameable verifyCmds, missing quality gates, Pinned-invariant contradictions, unrealistic budget, uncovered anti-goals, audit-cost vs work-cost — and emits a structured verdict. The interview loops until the auditor returns `confident: true` or the user explicitly waives a remaining loophole into `.gpr/Pinned.md`. Output is a complete `.gpr/Plan.json` that has survived adversarial review.
 
 ## Compared to prior art
 
@@ -154,6 +160,17 @@ If you start `/gpr` without an existing Plan, it activates **gpr-grill** — a c
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to add an agent backend, write a check, or propose a feature
 - [CHANGELOG.md](CHANGELOG.md) — release notes
 - [examples/hello-fastapi/](examples/hello-fastapi/) — three-intent worked example
+
+## Credits
+
+Two skills not in this repo gave gpr good ideas to bake into the loop:
+
+- **[mattpocock/skills](https://github.com/mattpocock/skills)** — Matt Pocock's small, composable engineering skills. The `grill-with-docs` skill in particular shaped how `gpr-grill` interviews the user beat by beat with refusal rules instead of running a one-shot template fill. The `tdd` and `improve-codebase-architecture` skills informed the test-discipline and module-shape choices in the `lib/state/` layer. MIT licensed; thank you Matt.
+- **[mdrxy/staged-pr](https://gist.github.com/mdrxy/7ed93ddeac5706bce0318e7c4b436efd)** — the staged-pr skill is the source of the conventional-commits-with-scope discipline, the conceptual-bullets-not-by-file rule, the noise filter (skip lockfiles, generated code, dependency bumps), and the explicit anti-pattern list (no "this PR…", no "going forward", no "leverages" without specifics). `gpr commit-intent` and `gpr pr-description` apply that discipline to gpr's own outputs.
+
+The visual aesthetic of `gpr render` borrows from **[makingsoftware.com](https://makingsoftware.com)** — editorial serif body, mono metadata in small caps, paper-edge shadow on a single white card, cobalt accent. CSS rewritten from cold; no styles copied.
+
+All borrowed ideas are credited in [DESIGN.md](DESIGN.md) with specifics on what was kept, what was changed, and why.
 
 ## Cleanroom statement
 
