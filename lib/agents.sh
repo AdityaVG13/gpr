@@ -26,6 +26,10 @@ agent_supports() {
 }
 
 # Best-effort model id for cost accounting. Override via GPR_MODEL.
+# When GPR_MODEL is set, _agent_model_argv ALSO injects `--model <id>`
+# into the spawned agent's argv (claude/codex). For other agents the
+# id is used for cost lookup only — pass model selection via
+# GPR_AGENT_EXTRA_ARGS.
 agent_model_id() {
   if [[ -n "${GPR_MODEL:-}" ]]; then
     printf '%s' "$GPR_MODEL"
@@ -35,6 +39,17 @@ agent_model_id() {
     claude) printf 'claude-opus-4-7' ;;
     codex)  printf 'gpt-5-codex' ;;
     *)      printf 'default' ;;
+  esac
+}
+
+# Yield `--model <id>` lines for agents whose CLI accepts a stable
+# model flag, when the user explicitly set GPR_MODEL. Silent when
+# unset — keeps the agent's own default in play.
+_agent_model_argv() {
+  [[ -z "${GPR_MODEL:-}" ]] && return 0
+  case "$1" in
+    claude|codex) printf -- '--model\n%s\n' "$GPR_MODEL" ;;
+    *) ;;
   esac
 }
 
@@ -110,6 +125,10 @@ _agent_run_generic() {
     log_fail "$binary CLI not found on PATH"
     return 127
   fi
+  # Inject `--model <id>` for agents that accept it, when GPR_MODEL is set.
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && argv+=("$line")
+  done < <(_agent_model_argv "$agent")
   # Append user-supplied extra args (skills/MCP/allowedTools/etc).
   if [[ -n "${GPR_AGENT_EXTRA_ARGS:-}" ]]; then
     local extra=()

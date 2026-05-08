@@ -103,10 +103,11 @@ cmd_init() {
 
 cmd_run() {
   local agent="claude" max_iters=50 iter_timeout=1800
-  local deep_audit="0" audit_agent=""
+  local deep_audit="0" audit_agent="" model=""
   while (( $# > 0 )); do
     case "$1" in
       --agent) agent="$2"; shift 2 ;;
+      --model) model="$2"; shift 2 ;;
       --max-iters) max_iters="$2"; shift 2 ;;
       --iter-timeout) iter_timeout="$2"; shift 2 ;;
       --max-cost-usd) GPR_BUDGET_MAX_COST_USD="$2"; export GPR_BUDGET_MAX_COST_USD; shift 2 ;;
@@ -114,7 +115,11 @@ cmd_run() {
       --deep-audit) deep_audit="1"; shift ;;
       --audit-agent) audit_agent="$2"; shift 2 ;;
       -h|--help)
-        echo "gpr run [--agent claude|codex|opencode|gemini|echo] [--max-iters N] [--iter-timeout SEC] [--max-cost-usd USD] [--deep-audit] [--audit-agent X]"
+        echo "gpr run [--agent claude|codex|opencode|gemini|echo] [--model ID] [--max-iters N] [--iter-timeout SEC] [--max-cost-usd USD] [--deep-audit] [--audit-agent X]"
+        echo
+        echo "  --model ID    Force the agent's underlying model (e.g. claude-opus-4-7,"
+        echo "                gpt-5-codex). Agents without a stable --model flag are"
+        echo "                left alone — use GPR_AGENT_EXTRA_ARGS for those."
         echo
         echo "ENV"
         echo "  GPR_AGENT_EXTRA_ARGS   Extra flags appended to the agent invocation."
@@ -127,6 +132,7 @@ cmd_run() {
       *) log_fail "unknown arg: $1"; return 2 ;;
     esac
   done
+  [[ -n "$model" ]] && { GPR_MODEL="$model"; export GPR_MODEL; }
   export GPR_DEEP_AUDIT="$deep_audit"
   [[ -n "$audit_agent" ]] && export GPR_AUDIT_AGENT="$audit_agent"
   # shellcheck source=lib/agents.sh
