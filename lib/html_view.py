@@ -1813,6 +1813,7 @@ HTML_SHELL = """\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+{refresh_meta}
 <title>{title}</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -2122,6 +2123,11 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
     initial_font_size = cfg.get("viewer.font_size", "default")
     initial_spotlight = "true" if cfg.get("viewer.spotlight", True) else "false"
     initial_palette = "true" if cfg.get("viewer.palette", True) else "false"
+    auto_refresh = int(cfg.get("viewer.auto_refresh", 0) or 0)
+    refresh_meta = (
+        f'<meta http-equiv="refresh" content="{auto_refresh}">'
+        if auto_refresh > 0 else ""
+    )
     return HTML_SHELL.format(
         title=f"{_esc(plan['project'])} · gpr",
         plan_id=_esc(plan_id),
@@ -2137,4 +2143,5 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
         initial_font_size=_esc(initial_font_size),
         initial_spotlight=initial_spotlight,
         initial_palette=initial_palette,
+        refresh_meta=refresh_meta,
     )

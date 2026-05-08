@@ -546,10 +546,9 @@ def cmd_ingest_pr(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_render(args: argparse.Namespace) -> int:
+def _do_render(root: Path, args: argparse.Namespace) -> Path:
     from . import html_view
     from .state import config as config_mod
-    root = _project_root()
     plan = plan_mod.load(root)
     state = budget_mod.load(root)
     cfg = config_mod.load_effective(root)
@@ -559,11 +558,19 @@ def cmd_render(args: argparse.Namespace) -> int:
         cfg["viewer.theme"] = args.theme
     if args.no_spotlight:
         cfg["viewer.spotlight"] = False
+    if getattr(args, "auto_refresh", 0):
+        cfg["viewer.auto_refresh"] = int(args.auto_refresh)
     out_path = Path(args.output) if args.output else (_gpr_dir() / "Plan.html")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_view.render(plan, state, _gpr_dir(), root, cfg))
+    return out_path
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    root = _project_root()
+    out_path = _do_render(root, args)
     if args.json:
-        _print_json({"ok": True, "path": str(out_path), "style": cfg["viewer.style"]})
+        _print_json({"ok": True, "path": str(out_path)})
     else:
         print(out_path)
     if args.open:
@@ -572,7 +579,43 @@ def cmd_render(args: argparse.Namespace) -> int:
         if opener:
             import subprocess
             subprocess.Popen([opener, str(out_path)])
+    if args.watch:
+        return _watch_render(root, args, out_path)
     return 0
+
+
+def _watch_render(root: Path, args: argparse.Namespace, out_path: Path) -> int:
+    """Re-render whenever a state file's mtime changes."""
+    import time
+    gpr_dir = _gpr_dir()
+    targets = [
+        plan_mod.plan_path(root),
+        gpr_dir / "Pinned.md",
+        gpr_dir / "Spine.md",
+        gpr_dir / "Steer.md",
+        gpr_dir / "errors.log",
+        gpr_dir / "events.jsonl",
+        gpr_dir / "budget.json",
+    ]
+    print(f"watching {len(targets)} files; re-rendering on change. ctrl-c to stop.")
+    last: dict[str, float] = {}
+    for p in targets:
+        last[str(p)] = p.stat().st_mtime if p.exists() else 0.0
+    try:
+        while True:
+            time.sleep(1.0)
+            changed: list[str] = []
+            for p in targets:
+                m = p.stat().st_mtime if p.exists() else 0.0
+                if m != last.get(str(p)):
+                    changed.append(p.name)
+                    last[str(p)] = m
+            if changed:
+                _do_render(root, args)
+                print(f"[{plan_mod.utc_now()}] re-rendered ({', '.join(changed)})")
+    except KeyboardInterrupt:
+        print("\nwatch stopped.")
+        return 0
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -870,6 +913,11 @@ def main() -> int:
                      help="Override the theme for this render")
     prn.add_argument("--no-spotlight", action="store_true",
                      help="Disable the spotlight cursor for this render")
+    prn.add_argument("--watch", action="store_true",
+                     help="Re-render on every state-file change. Ctrl-C to stop.")
+    prn.add_argument("--auto-refresh", type=int, default=0, metavar="SECONDS",
+                     help="Embed an HTML meta-refresh tag with this interval. "
+                          "Pairs with --watch for hands-off live updates.")
     prn.add_argument("--json", action="store_true")
     prn.set_defaults(func=cmd_render)
 
