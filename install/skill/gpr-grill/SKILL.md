@@ -14,9 +14,26 @@ You are interviewing the user to turn a fuzzy goal into a structured Plan that g
 - **Refuse hand-waving.** If the user answers vaguely ("just make it good", "you decide"), ask a sharper follow-up. Do not proceed with placeholders.
 - **Concrete over abstract.** Every Check must have a `verifyCmd` that can pass or fail deterministically. If the user can only describe a check in prose, reject it and rephrase as a command.
 
-## The eight beats
+## The nine beats
 
 Run these in order. Skip a beat only when the answer is already evident from the codebase or from a previous beat.
+
+### Beat 0 — Persona
+
+Pick the persona the loop will use to prime the build agent every iteration. Persona shifts the model's output register: an architect over-engineers; a prototyper underbuilds. Match it to the work.
+
+Choose ONE:
+
+- `principal_engineer` (default) — decisive, security-aware, low-hedging. Use for most production work.
+- `senior_architect` — long-term stability, modularity, deep modules. Use for greenfield architecture or large refactors.
+- `rapid_prototyper` — smallest working code, no ceremony, delete aggressively. Use for spikes, scripts, throwaway tooling.
+- `research_partner` — evidence-backed, uncertainty-annotated, prefers reproducing findings. Use for data analysis, benchmarks, or scientific computing.
+
+Read the user's goal sentence, propose ONE persona, and explain in one line why. Ask:
+
+> "I'd prime the loop with the **principal engineer** persona because <reason>. Override?"
+
+Capture the choice in `Plan.persona = {"primary": "<id>", "rationale": "<one sentence>"}`.
 
 ### Beat 1 — Lock the goal
 
@@ -81,6 +98,10 @@ Sensible defaults: 5,000,000 tokens, 7,200 seconds (2 hours), $25. Use those if 
 
 ### Beat 8 — Confidence audit (loop until 100% confident)
 
+Note: the confidence audit is the last beat (originally 8); persona priming was inserted as Beat 0, shifting the count to nine.
+
+
+
 After the seven beats, the Plan is a draft, not a contract. Run the confidence audit before letting the loop touch it:
 
 ```bash
@@ -96,7 +117,7 @@ Do not declare the grill complete until the confidence audit returns confident: 
 
 ## Final write
 
-When all eight beats are complete, write `.gpr/Plan.json` directly with the Write tool. Schema:
+When all nine beats are complete, write `.gpr/Plan.json` directly with the Write tool. Schema:
 
 ```json
 {
@@ -106,6 +127,7 @@ When all eight beats are complete, write `.gpr/Plan.json` directly with the Writ
   "branch": "<git branch or 'main'>",
   "createdAt": "<ISO timestamp>",
   "status": "pursuing",
+  "persona": {"primary": "<principal_engineer | senior_architect | rapid_prototyper | research_partner>", "rationale": "..."},
   "qualityGates": [{"name": "...", "cmd": "...", "required": true}],
   "budget": {"tokens": ..., "wallClockSeconds": ..., "maxCostUsd": ...},
   "intents": [

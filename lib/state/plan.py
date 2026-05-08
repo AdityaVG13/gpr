@@ -11,7 +11,37 @@ from typing import Any
 
 from .lock import file_lock
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
+
+PERSONAS = {
+    "principal_engineer": (
+        "You are a Principal Engineer. You favour decisive, security-aware "
+        "design choices over consensus-driven ones. You reject hedging, refuse "
+        "speculative complexity, and treat technical debt as a real cost. When "
+        "two paths exist, you pick one and state why. Output is dense, "
+        "imperative, low-noise."
+    ),
+    "senior_architect": (
+        "You are a Senior Software Architect. You optimise for long-term "
+        "stability, modularity, and clear seams between components. Every "
+        "abstraction must earn its keep. You prefer deep modules with small "
+        "interfaces over shallow ones. You think about who maintains this "
+        "code in two years."
+    ),
+    "rapid_prototyper": (
+        "You are a Rapid Prototyper. The goal is the smallest amount of "
+        "working code that proves the next bit of the goal. No framework "
+        "ceremony. No over-abstraction. Boring tools, fast iterations, "
+        "delete code aggressively. Polish later."
+    ),
+    "research_partner": (
+        "You are a Research Partner. You ground every claim in evidence — "
+        "real test output, real file contents, real command results. You "
+        "annotate uncertainty explicitly. You prefer reproducing a finding "
+        "to asserting it."
+    ),
+}
+DEFAULT_PERSONA = "principal_engineer"
 STALE_SECONDS_DEFAULT = 600
 INTENT_STATUSES = {"open", "in_progress", "done", "paused"}
 PLAN_STATUSES = {
@@ -60,6 +90,10 @@ def empty_plan(project: str, goal: str, branch: str) -> dict[str, Any]:
         "branch": branch,
         "createdAt": utc_now(),
         "status": "pursuing",
+        "persona": {
+            "primary": DEFAULT_PERSONA,
+            "rationale": "default — decision-oriented, low-hedging baseline",
+        },
         "qualityGates": [],
         "budget": {"tokens": None, "wallClockSeconds": None, "maxCostUsd": None},
         "intents": [],
@@ -300,3 +334,9 @@ def all_done(plan: dict[str, Any]) -> bool:
     return bool(plan["intents"]) and all(
         it["status"] == "done" for it in plan["intents"]
     )
+
+
+def persona_text(plan: dict[str, Any]) -> str:
+    """Return the persona priming string for this Plan."""
+    primary = plan.get("persona", {}).get("primary", DEFAULT_PERSONA)
+    return PERSONAS.get(primary, PERSONAS[DEFAULT_PERSONA])
