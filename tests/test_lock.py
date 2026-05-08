@@ -29,23 +29,36 @@ def test_concurrent_acquire_blocks(tmp_project):
     import subprocess
     import sys
     import time
+
     lp = tmp_project / "x.lock"
+    ready = tmp_project / "x.ready"
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # Subprocess: acquire the lock, write the ready sentinel, hold for 2s.
+    # The parent waits for the sentinel before attempting acquire so the
+    # test isn't racing the subprocess startup.
     code = (
         "import sys, time;"
         "sys.path.insert(0, %r);"
         "from lib.state.lock import file_lock;"
-        "f = file_lock(%r, timeout=2);"
+        "f = file_lock(%r, timeout=5);"
         "f.__enter__();"
-        "time.sleep(0.6);"
+        "open(%r, 'w').write('go');"
+        "time.sleep(2.0);"
         "f.__exit__(None, None, None)"
-    ) % (str(tmp_project.parent.parent.parent.parents[0]) if False else
-          os.path.dirname(os.path.dirname(os.path.abspath(__file__))), str(lp))
+    ) % (repo_root, str(lp), str(ready))
     proc = subprocess.Popen([sys.executable, "-c", code])
-    time.sleep(0.2)
+
+    deadline = time.monotonic() + 5.0
+    while not ready.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert ready.exists(), "subprocess never acquired the lock"
+
     with pytest.raises(LockTimeout):
-        with file_lock(lp, timeout=0.2, poll=0.05):
+        with file_lock(lp, timeout=0.3, poll=0.05):
             pass
-    proc.wait(timeout=3)
+
+    proc.wait(timeout=5)
 
 
 @pytest.mark.skipif(
