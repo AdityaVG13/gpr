@@ -118,28 +118,47 @@ def _intent_dag_mermaid(plan: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _intent_card_html(idx: int, intent: dict[str, Any], all_done_ids: set[str]) -> str:
+def _intent_card_html(
+    idx: int, intent: dict[str, Any], all_done_ids: set[str], cfg: dict[str, Any]
+) -> str:
     num = f"{idx:02d}"
     deps = ", ".join(_esc(d) for d in intent["dependsOn"]) or "—"
     phase = _phase_for(intent, all_done_ids)
     phase_label, _ = PHASE_LABELS[phase]
 
+    sidenotes_on = cfg.get("viewer.sidenotes", True)
+    editable = cfg.get("viewer.editable", False)
+    edit_attr = ' contenteditable="plaintext-only" spellcheck="false"' if editable else ''
+
     checks_html_lines = []
-    for ch in intent.get("checks", []):
+    for ch_idx, ch in enumerate(intent.get("checks", [])):
         gcls = _check_glyph_class(intent, ch["id"])
         cmd = ch.get("verifyCmd")
         cmd_html = (
-            f'<div class="cmd-row"><code class="cmd">{_esc(cmd)}</code>'
+            f'<div class="cmd-row"><code class="cmd"'
+            f'{edit_attr} data-key="intent.{intent["id"]}.check.{ch["id"]}.verifyCmd"'
+            f' data-original="{_esc(cmd)}">{_esc(cmd)}</code>'
             f'<button class="copy-btn" data-copy="{_esc(cmd)}" title="copy">copy</button></div>'
             if cmd else
             '<div class="cmd cmd-manual">manual gate</div>'
         )
+        rationale = ch.get("rationale")
+        rationale_html = ""
+        if rationale and sidenotes_on:
+            sn_id = f"sn-{intent['id']}-{ch['id']}"
+            rationale_html = (
+                f'<label class="sn-toggle" for="{sn_id}">why?</label>'
+                f'<input class="sn-input" id="{sn_id}" type="checkbox">'
+                f'<span class="sn"><span class="sn-num">{_esc(ch["id"])}</span>'
+                f'{_esc(rationale)}</span>'
+            )
         checks_html_lines.append(
             f'<li class="check-item">'
             f'<span class="check-glyph {gcls}">●</span>'
             f'<div class="check-body">'
             f'<div class="check-head"><span class="check-id">{_esc(ch["id"])}</span> '
-            f'<span class="check-desc">{_esc(ch["description"])}</span></div>'
+            f'<span class="check-desc"{edit_attr} data-key="intent.{intent["id"]}.check.{ch["id"]}.description" data-original="{_esc(ch["description"])}">{_esc(ch["description"])}</span>'
+            f'{rationale_html}</div>'
             f'{cmd_html}'
             '</div></li>'
         )
@@ -159,6 +178,35 @@ def _intent_card_html(idx: int, intent: dict[str, Any], all_done_ids: set[str]) 
     proofs_count = len(intent.get("proofs", []))
     checks_count = len(intent.get("checks", []))
 
+    rings_on = cfg.get("viewer.rings", True)
+    ring_html = ""
+    if rings_on:
+        ring_html = (
+            f'<svg class="ring" viewBox="0 0 32 32" data-ring="{_esc(intent["id"])}" aria-hidden="true">'
+            '<circle class="ring-bg" cx="16" cy="16" r="13"/>'
+            '<circle class="ring-fg" cx="16" cy="16" r="13" '
+            'stroke-dasharray="81.68" stroke-dashoffset="81.68" '
+            'transform="rotate(-90 16 16)"/>'
+            '</svg>'
+        )
+
+    title_html = (
+        f'<h3 class="intent-title"{edit_attr} '
+        f'data-key="intent.{intent["id"]}.title" '
+        f'data-original="{_esc(intent["title"])}">{_esc(intent["title"])}</h3>'
+    )
+
+    intent_rationale = intent.get("rationale")
+    intent_sn_html = ""
+    if intent_rationale and cfg.get("viewer.sidenotes", True):
+        sn_id = f"sn-intent-{intent['id']}"
+        intent_sn_html = (
+            f'<label class="sn-toggle sn-intent-toggle" for="{sn_id}">why?</label>'
+            f'<input class="sn-input" id="{sn_id}" type="checkbox">'
+            f'<span class="sn sn-intent"><span class="sn-num">{_esc(intent["id"])}</span>'
+            f'{_esc(intent_rationale)}</span>'
+        )
+
     return (
         f'<article id="intent-{_esc(intent["id"])}" '
         f'class="intent-card" '
@@ -171,9 +219,9 @@ def _intent_card_html(idx: int, intent: dict[str, Any], all_done_ids: set[str]) 
         f'<header class="intent-summary" tabindex="0" @click="open = !open" '
         f'@keydown.enter.prevent="open = !open" @keydown.space.prevent="open = !open" '
         f':aria-expanded="open">'
-        f'<div class="intent-num">{num}</div>'
+        f'<div class="intent-num">{num}{ring_html}</div>'
         f'<div class="intent-headline">'
-        f'<h3 class="intent-title">{_esc(intent["title"])}</h3>'
+        f'{title_html}{intent_sn_html}'
         f'<div class="intent-meta">'
         f'<span class="phase-pill phase-{phase}" title="phase: {phase_label}">{phase_label}</span>'
         f'<span class="status status-{_esc(intent["status"])}">{_esc(intent["status"].replace("_", " "))}</span>'
@@ -511,6 +559,109 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   transition: background 200ms ease, color 200ms ease;
 }
+
+/* === PER-INTENT READING-PROGRESS RINGS === */
+.ring { width: 24px; height: 24px; display: block; margin-top: 6px; }
+.ring-bg { fill: none; stroke: var(--hairline); stroke-width: 2; }
+.ring-fg { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; transition: stroke-dashoffset 200ms linear; }
+
+/* === SIDENOTES (integrated, opt-in) === */
+.sn-toggle {
+  vertical-align: super;
+  font-size: 0.7em;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  margin-left: 6px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+.sn-toggle:hover { background: var(--accent); color: var(--paper); }
+.sn-input { display: none; }
+.sn-input:checked ~ .sn { display: block; }
+.sn {
+  display: none;
+  margin: 8px 0 12px 0;
+  padding: 12px 14px;
+  background: var(--accent-faint);
+  border-left: 2px solid var(--accent);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-muted);
+  font-style: italic;
+  font-family: 'EB Garamond', Georgia, serif;
+  border-radius: 2px;
+}
+.sn-num {
+  font-style: normal;
+  color: var(--accent);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  margin-right: 8px;
+}
+
+/* === EDITABLE FIELDS (patch export) === */
+[contenteditable] { outline: none; cursor: text; padding: 1px 4px; border-radius: 2px; transition: background 100ms ease, box-shadow 100ms ease; }
+[contenteditable]:hover { background: var(--accent-faint); }
+[contenteditable]:focus { background: var(--accent-faint); box-shadow: 0 0 0 1px var(--accent); }
+[contenteditable].dirty { background: color-mix(in oklab, var(--warn) 12%, var(--paper)); border-left: 2px solid var(--warn); padding-left: 8px; }
+.patch-bar {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  z-index: 80;
+  display: none;
+  gap: 12px; align-items: center;
+  background: var(--paper);
+  border: 1px solid var(--accent);
+  padding: 10px 16px;
+  border-radius: 4px;
+  box-shadow: var(--paper-shadow);
+}
+.patch-bar.has-edits { display: inline-flex; }
+.patch-bar button {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
+  color: var(--ink-muted);
+  cursor: pointer; border-radius: 3px;
+}
+.patch-bar button:hover { color: var(--accent); border-color: var(--accent); }
+.patch-bar .count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px; color: var(--accent);
+}
+
+/* === DIFF OVERLAY === */
+body[data-diff="true"] .intent-card[data-diff-state="added"] {
+  background: color-mix(in oklab, var(--pass) 8%, var(--paper));
+  border-left: 3px solid var(--pass);
+}
+body[data-diff="true"] .intent-card[data-diff-state="removed"] {
+  background: color-mix(in oklab, var(--fail) 8%, var(--paper));
+  border-left: 3px solid var(--fail);
+  opacity: 0.7;
+}
+body[data-diff="true"] .intent-card[data-diff-state="modified"] {
+  background: color-mix(in oklab, var(--warn) 6%, var(--paper));
+  border-left: 3px solid var(--warn);
+}
+body[data-diff="true"] .intent-card[data-diff-state="unchanged"] { opacity: 0.45; }
+.diff-legend {
+  display: none;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.14em;
+}
+body[data-diff="true"] .diff-legend { display: inline-flex; gap: 12px; }
+.diff-legend .added { color: var(--pass); }
+.diff-legend .removed { color: var(--fail); }
+.diff-legend .modified { color: var(--warn); }
 
 /* === STORY MODE === */
 :root[data-mode="story"] .toolbar,
@@ -1100,6 +1251,7 @@ h2.section-h::after {
   font-size: 10.5px; tabular-nums;
   color: var(--ink-faint);
   text-transform: uppercase;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
 .intent-headline { min-width: 0; }
 .intent-title {
@@ -1517,6 +1669,8 @@ document.addEventListener('alpine:init', () => {
     fontSize: document.documentElement.dataset.fontSize || 'default',
     mode: 'normal',
     spotlightOn: true,
+    diffOn: false,
+    hasSnapshot: !!(window.__GPR_SNAPSHOT__ && window.__GPR_SNAPSHOT__.intents),
     paletteOpen: false,
     paletteQuery: '',
     paletteIdx: 0,
@@ -1539,6 +1693,9 @@ document.addEventListener('alpine:init', () => {
       this.bindSpotlight();
       this.bindFadeUp();
       this.bindAnchors();
+      this.bindRings();
+      this.bindEditable();
+      this.computeDiffStates();
     },
 
     persist() {
@@ -1560,6 +1717,12 @@ document.addEventListener('alpine:init', () => {
     setMode(m) { this.mode = m; this.applyMode(); this.persist(); this.toast(m === 'story' ? 'story mode · press s to exit' : 'normal mode'); },
     applyMode() { document.documentElement.dataset.mode = this.mode; },
     toggleMode() { this.setMode(this.mode === 'story' ? 'normal' : 'story'); },
+    toggleDiff() {
+      if (!this.hasSnapshot) return;
+      this.diffOn = !this.diffOn;
+      document.body.dataset.diff = this.diffOn ? 'true' : 'false';
+      this.toast(this.diffOn ? 'diff vs prior snapshot' : 'diff off');
+    },
     toggleSpotlight() {
       this.spotlightOn = !this.spotlightOn;
       const el = document.querySelector('.spotlight');
@@ -1660,6 +1823,7 @@ document.addEventListener('alpine:init', () => {
         if (e.key === 'j') { e.preventDefault(); this.jumpRel(+1); return; }
         if (e.key === 'k') { e.preventDefault(); this.jumpRel(-1); return; }
         if (e.key === 's' || e.key === 'S') { e.preventDefault(); this.toggleMode(); return; }
+        if (e.key === 'd' || e.key === 'D') { e.preventDefault(); this.toggleDiff(); return; }
       });
     },
 
@@ -1783,6 +1947,130 @@ document.addEventListener('alpine:init', () => {
       });
     },
 
+    /* --- per-intent reading-progress rings: dwell-time IntersectionObserver --- */
+    bindRings() {
+      const rings = document.querySelectorAll('[data-ring]');
+      if (!rings.length || !('IntersectionObserver' in window)) return;
+      const C = 2 * Math.PI * 13;
+      const dwell = new Map();
+      const seen = new WeakMap();
+      rings.forEach(r => dwell.set(r.dataset.ring, 0));
+      const obs = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+          const r = e.target.querySelector('[data-ring]');
+          if (!r) return;
+          seen.set(e.target, e.isIntersecting ? performance.now() : null);
+        });
+      }, { threshold: 0.4 });
+      document.querySelectorAll('.intent-card').forEach(s => obs.observe(s));
+      const tick = () => {
+        const now = performance.now();
+        document.querySelectorAll('.intent-card').forEach(s => {
+          const r = s.querySelector('[data-ring]');
+          if (!r) return;
+          const id = r.dataset.ring;
+          const start = seen.get(s);
+          if (start) {
+            const elapsed = now - start;
+            const f = Math.min(1, (dwell.get(id) || 0) + elapsed / 3000);
+            dwell.set(id, f);
+            seen.set(s, now);
+          }
+          const f = dwell.get(id) || 0;
+          r.querySelector('.ring-fg').setAttribute('stroke-dashoffset', (C * (1 - f)).toFixed(2));
+        });
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    },
+
+    /* --- editable fields + patch export --- */
+    bindEditable() {
+      const fields = Array.from(document.querySelectorAll('[contenteditable][data-original]'));
+      if (!fields.length) return;
+      const bar = document.getElementById('patch-bar');
+      const count = document.getElementById('patch-count');
+      const reset = document.getElementById('patch-reset');
+      const dl = document.getElementById('patch-download');
+      const dirty = () => fields.filter(f => f.textContent.trim() !== f.dataset.original.trim());
+      const refresh = () => {
+        fields.forEach(f => f.classList.toggle('dirty', f.textContent.trim() !== f.dataset.original.trim()));
+        const n = dirty().length;
+        bar.classList.toggle('has-edits', n > 0);
+        count.textContent = `${n} edit${n === 1 ? '' : 's'}`;
+      };
+      const buildDiff = () => {
+        const lines = ['--- a/.gpr/Plan.json', '+++ b/.gpr/Plan.json'];
+        dirty().forEach(f => {
+          lines.push(`@@ ${f.dataset.key} @@`);
+          lines.push(`- "${f.dataset.original.replace(/"/g, '\\"')}"`);
+          lines.push(`+ "${f.textContent.trim().replace(/"/g, '\\"')}"`);
+        });
+        return lines.join('\n') + '\n';
+      };
+      fields.forEach(f => f.addEventListener('input', refresh));
+      reset.addEventListener('click', () => {
+        fields.forEach(f => { f.textContent = f.dataset.original; });
+        refresh();
+        this.toast('edits reverted');
+      });
+      dl.addEventListener('click', () => {
+        const blob = new Blob([buildDiff()], { type: 'text/x-diff' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'plan-edits.patch';
+        a.click();
+        URL.revokeObjectURL(a.href);
+        this.toast('patch.diff downloaded');
+      });
+      refresh();
+    },
+
+    /* --- diff overlay: tag each intent-card with diff state vs snapshot --- */
+    computeDiffStates() {
+      if (!this.hasSnapshot) return;
+      const snap = window.__GPR_SNAPSHOT__;
+      const prevById = new Map((snap.intents || []).map(it => [it.id, it]));
+      const seenIds = new Set();
+      document.querySelectorAll('.intent-card').forEach(card => {
+        const id = card.dataset.id;
+        seenIds.add(id);
+        const prev = prevById.get(id);
+        if (!prev) {
+          card.dataset.diffState = 'added';
+          return;
+        }
+        const currentTitle = card.querySelector('.intent-title')?.textContent.trim();
+        const currentStatus = card.dataset.status;
+        const prevTitle = (prev.title || '').trim();
+        const prevStatus = prev.status;
+        const checksDiffer =
+          card.querySelectorAll('.check-item').length !== (prev.checks || []).length;
+        if (currentTitle !== prevTitle || currentStatus !== prevStatus || checksDiffer) {
+          card.dataset.diffState = 'modified';
+        } else {
+          card.dataset.diffState = 'unchanged';
+        }
+      });
+      // Render removed-since-snapshot intents as ghost cards in the legend's tooltip.
+      const removed = (snap.intents || []).filter(it => !seenIds.has(it.id));
+      if (removed.length) {
+        const list = document.querySelector('.intent-list');
+        if (list) {
+          removed.forEach(it => {
+            const ghost = document.createElement('article');
+            ghost.className = 'intent-card';
+            ghost.dataset.diffState = 'removed';
+            ghost.dataset.id = it.id;
+            ghost.dataset.status = 'removed';
+            ghost.dataset.title = (it.title || '').toLowerCase();
+            ghost.innerHTML = `<header class="intent-summary"><div class="intent-num">—</div><div class="intent-headline"><h3 class="intent-title">${it.title || it.id}</h3><div class="intent-meta"><span class="meta">removed since snapshot</span></div></div></header>`;
+            list.appendChild(ghost);
+          });
+        }
+      }
+    },
+
     /* --- spotlight cursor: CSS variable, rAF-coalesced — direct follow, no lag --- */
     bindSpotlight() {
       const el = document.querySelector('.spotlight');
@@ -1885,6 +2173,10 @@ mermaid.initialize({{
     </div>
     <button class="ghost-btn" :aria-pressed="spotlightOn" @click="toggleSpotlight()" title="spotlight cursor">spot</button>
     <button class="ghost-btn" @click="toggleMode()" title="story mode (S)">story</button>
+    <button class="ghost-btn" x-show="hasSnapshot" :aria-pressed="diffOn" @click="toggleDiff()" title="diff vs prior snapshot (D)">diff</button>
+    <span class="diff-legend">
+      <span class="added">+ new</span><span class="modified">~ changed</span><span class="removed">− removed</span>
+    </span>
     <button class="ghost-btn" @click="window.print()" title="print">print</button>
   </div>
 </nav>
@@ -1944,10 +2236,27 @@ mermaid.initialize({{
 
 <div id="toasts" aria-live="polite"></div>
 
+<div class="patch-bar" id="patch-bar">
+  <span class="count" id="patch-count">0 edits</span>
+  <button id="patch-reset">reset</button>
+  <button id="patch-download">download patch.diff</button>
+</div>
+
+<script>window.__GPR_SNAPSHOT__ = {snapshot_json};</script>
 <script>{js}</script>
 </body>
 </html>
 """
+
+
+def _load_snapshot(gpr_dir: Path) -> dict[str, Any] | None:
+    snap = gpr_dir / "snapshots" / "latest.json"
+    if not snap.exists():
+        return None
+    try:
+        return json.loads(snap.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
@@ -1961,7 +2270,7 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
 
     all_done_ids = {it["id"] for it in plan["intents"] if it["status"] == "done"}
     intents_html = "".join(
-        _intent_card_html(i + 1, it, all_done_ids)
+        _intent_card_html(i + 1, it, all_done_ids, cfg or {})
         for i, it in enumerate(plan["intents"])
     )
     dag = _intent_dag_mermaid(plan)
@@ -2128,6 +2437,8 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
         f'<meta http-equiv="refresh" content="{auto_refresh}">'
         if auto_refresh > 0 else ""
     )
+    snapshot = _load_snapshot(gpr_dir)
+    snapshot_json = json.dumps(snapshot) if snapshot else "null"
     return HTML_SHELL.format(
         title=f"{_esc(plan['project'])} · gpr",
         plan_id=_esc(plan_id),
@@ -2144,4 +2455,5 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
         initial_spotlight=initial_spotlight,
         initial_palette=initial_palette,
         refresh_meta=refresh_meta,
+        snapshot_json=snapshot_json,
     )

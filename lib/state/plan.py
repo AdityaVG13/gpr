@@ -117,6 +117,7 @@ def empty_intent(intent_id: str, title: str, priority: int = 50) -> dict[str, An
         "status": "open",
         "priority": priority,
         "dependsOn": [],
+        "rationale": None,
         "checks": [],
         "proofs": [],
         "startedAt": None,
@@ -130,6 +131,7 @@ def empty_check(check_id: str, description: str, verify_cmd: str | None) -> dict
         "id": check_id,
         "description": description,
         "verifyCmd": verify_cmd,
+        "rationale": None,
         "timeoutSeconds": 300,
         "retries": 3,
     }

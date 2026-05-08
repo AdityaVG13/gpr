@@ -262,6 +262,14 @@ def cmd_ingest_signal(args: argparse.Namespace) -> int:
             "audit": audit_result,
         },
     )
+    # Save a Plan snapshot under .gpr/snapshots/iter-NNNN.json so the HTML
+    # viewer's diff overlay has something to compare against.
+    snap_dir = _gpr_dir() / "snapshots"
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    snap_path = snap_dir / f"iter-{plan['globalState']['iteration']:04d}.json"
+    snap_path.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n")
+    latest = snap_dir / "latest.json"
+    latest.write_text(snap_path.read_text())
     if args.json:
         _print_json(
             {
