@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.5 — 2026-05-08
+
+Loop reliability + agent-control surface.
+
+- **Fix: macOS `wall=0s` stalemate.** `_agent_run_generic` unconditionally invoked `timeout "$secs" claude …`, but macOS doesn't ship GNU coreutils — `timeout` resolved to "command not found", every iteration exited rc=127 in 0s with no signal block, and the loop tripped the stalemate kill-switch after 4 iters. The dispatcher now resolves `timeout` (Linux) → `gtimeout` (Homebrew) → no outer cap (per-agent CLI keeps its own limits). `gpr doctor` reports `timeout`/`gtimeout` so the missing dep is visible.
+- **Fix: dangling `--append-system-prompt` on claude argv.** A trailing flag with no value swallowed the rendered prompt as the system-prompt addition, leaving the actual user prompt empty. Even when `timeout` was present this was a latent failure mode. Removed; the continuation prompt template already carries everything the agent needs.
+- **`gpr run --model ID`** — first-class flag forces the agent's underlying model (e.g. `--model claude-opus-4-7`). `--print`-mode CLIs spawn fresh processes and don't inherit the parent session's model; without an override the loop ran at the agent's default. `agents.sh` injects `--model <id>` into claude/codex argv when set; cost accounting already used the same id, so the price-lookup stays consistent with what actually ran. Other agents (opencode, gemini) — pass model selection via `GPR_AGENT_EXTRA_ARGS`.
+- **`GPR_AGENT_EXTRA_ARGS`** — pass-through env appended to every agent invocation, shell-split. Lets users opt their MCP servers, allowed-tools list, hooks-config, etc. into the loop without forking the dispatcher. Documented in `gpr run --help`. Example: `GPR_AGENT_EXTRA_ARGS='--allowedTools "Bash(rtk *)"' gpr run --agent claude`.
+- **`gpr-grill` skill — Plan.json overwrite guard.** A preflight check forces an explicit Revise / Rewrite / Abort choice when `.gpr/Plan.json` already exists. Rewrite backs up to `.gpr/Plan.json.bak.<timestamp>` before any Write. New "never overwrite Plan.json without confirmation" rule overrides the one-question-per-turn flow when triggered. Adds an express-path "fast" / "quick" / "express" mode that batches beats 0–4 into a single proposal turn for users who want speed over depth. End-of-grill offers `gpr render --open` to view the Plan in a browser before kicking off the loop.
+
 ## v0.1.4 — 2026-05-08
 
 Cross-platform support, community files, dependency automation.
