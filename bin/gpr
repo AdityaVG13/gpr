@@ -115,6 +115,14 @@ cmd_run() {
       --audit-agent) audit_agent="$2"; shift 2 ;;
       -h|--help)
         echo "gpr run [--agent claude|codex|opencode|gemini|echo] [--max-iters N] [--iter-timeout SEC] [--max-cost-usd USD] [--deep-audit] [--audit-agent X]"
+        echo
+        echo "ENV"
+        echo "  GPR_AGENT_EXTRA_ARGS   Extra flags appended to the agent invocation."
+        echo "                         Use to opt your MCP servers, allowed-tools list,"
+        echo "                         hooks-config, model override, etc. into the loop."
+        echo "                         Quoted; split with shell rules. Example:"
+        echo "                           GPR_AGENT_EXTRA_ARGS='--allowedTools \"Bash(rtk *)\"' \\"
+        echo "                             gpr run --agent claude"
         return 0 ;;
       *) log_fail "unknown arg: $1"; return 2 ;;
     esac

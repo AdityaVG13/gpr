@@ -7,6 +7,14 @@
 #
 # Invariant: every supported coding-agent CLI we wrap accepts its
 # prompt as the LAST positional argument (after all flags).
+#
+# Extra args: callers can append flags via GPR_AGENT_EXTRA_ARGS. The
+# value is split with `eval` on a single line, so quoting follows shell
+# rules. Use this to opt the user's MCP servers, allowed-tools list,
+# hooks-config, model override, etc. into the agent invocation.
+# Example:
+#   GPR_AGENT_EXTRA_ARGS='--mcp-config ~/.claude/mcp.json --allowedTools "Bash(rtk *)"' \
+#     gpr run --agent claude
 
 # --- public surface -----------------------------------------------------------
 
@@ -85,6 +93,13 @@ _agent_run_generic() {
   if ! command -v "$binary" >/dev/null 2>&1; then
     log_fail "$binary CLI not found on PATH"
     return 127
+  fi
+  # Append user-supplied extra args (skills/MCP/allowedTools/etc).
+  if [[ -n "${GPR_AGENT_EXTRA_ARGS:-}" ]]; then
+    local extra=()
+    # shellcheck disable=SC2086
+    eval "extra=(${GPR_AGENT_EXTRA_ARGS})"
+    argv+=("${extra[@]}")
   fi
   local prompt
   prompt="$(cat)"
