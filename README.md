@@ -1,79 +1,102 @@
+<div align="center">
+
 # gpr
 
-**Goal-driven PRD Ratchet.** An agent loop that only marks work done when real artifacts pass real checks.
+**Goal-driven PRD Ratchet** — an agent loop that only marks work done when real artifacts pass real checks.
 
-```bash
-gpr init --objective "Build a TODO REST API with auth"
-$EDITOR .gpr/Plan.json
-gpr run --agent claude --max-cost-usd 5
-```
+[![License](https://img.shields.io/badge/license-Apache_2.0-blue?style=flat-square)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-67_passing-emerald?style=flat-square)](tests/)
+[![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 
-That's the whole UX. From there gpr drives Claude (or Codex, OpenCode, Gemini) through your Plan, intent by intent, until either every check has evidence on disk or the loop hits a stop condition you defined: a budget, a stalemate, a blocked dependency, a human steer.
+![demo](docs/demo.gif)
+
+</div>
 
 ---
 
-## Why this exists
+## Install
 
-The naive ralph loop — `while true: claude -p prompt.md` — has five well-known failure modes. gpr fixes each one structurally, not by hoping the model behaves.
+```bash
+git clone https://github.com/AdityaVG13/GPR ~/.local/share/gpr
+ln -sf ~/.local/share/gpr/bin/gpr ~/.local/bin/gpr
+~/.local/share/gpr/install/install.sh   # registers the /gpr Claude Code skill
+gpr doctor
+```
+
+## Use
+
+```bash
+cd my-project
+gpr init --objective "Build a TODO REST API with auth"
+$EDITOR .gpr/Plan.json     # add intents and checks, or run /gpr-grill in a Claude session
+gpr run --agent claude --max-cost-usd 5 --deep-audit
+```
+
+Or, from inside any Claude Code TUI session:
+
+```
+/gpr Build a TODO REST API with auth     # bootstraps via gpr-grill, runs first iteration
+/gpr-status                              # progress + budget burn
+/gpr-steer Switch from sqlite to postgres
+```
+
+## Why
+
+The naive ralph loop (`while true: claude -p prompt.md`) has five well-known failure modes. gpr fixes each one structurally, not by hoping the model behaves.
 
 | Failure mode | What goes wrong | gpr's fix |
 |---|---|---|
 | Self-reported completion | Model says it's done; it isn't | Layer-1 `verifyCmd` per check + Layer-2 cross-model auditor |
-| Context compaction | Mid-run context grows past the window; state is lost | Clean session every iteration; memory externalised in `Spine.md` |
+| Context compaction | State lost as context grows past the window | Clean session per iteration; memory externalised in `Spine.md` |
 | Silent hangs | Agent CLI freezes; loop blocks | Per-iteration wall-clock timeout with retry and exponential backoff |
-| No-op iterations | Agent emits prose, no real changes | Two-layer detector: zero meaningful tool calls, plus payload-hash + checkbox stalemate |
-| Lost human control | Need to kill and restart to redirect | `gpr steer "..."` writes to `Steer.md`; the agent reads it first every round |
+| No-op iterations | Prose with no real changes | Two-layer detector: zero meaningful tool calls + payload-hash + checkbox stalemate |
+| Lost human control | Need to kill and restart to redirect | `Steer.md` interrupt file the agent reads first every round |
 
 There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up), a spec-drift sweep that re-runs old verifyCmds against the current state, and a `RESCOPE` signal for when the agent decides the plan itself is wrong.
 
----
+## Status at a glance
 
-## Two ways to invoke
+<p align="center">
+  <img src="docs/status.png" alt="gpr status output" width="640">
+</p>
 
-**Mode A — CLI.** `gpr run` drives the loop as an external process. Best for autonomous overnight runs, headless servers, CI.
-
-**Mode B — Claude Code skill.** `/gpr` runs one iteration inside your current Claude TUI session. The CLI is the canonical state machine; the skill borrows your active session as the worker. Same state on disk, two front doors.
-
-```bash
-# install Mode B
-~/Developer/gpr/install/install.sh
-# then in any Claude Code session inside a gpr-initialised project:
-/gpr            # runs one iteration, then yields
-/gpr-status     # progress + budget burn
-/gpr-steer ...  # write a human steer
-```
-
-Mode C (MCP server, accessible from Codex / Cursor / any MCP client) is on the roadmap once usage patterns settle.
-
----
+`gpr render` produces a self-contained HTML dashboard with the intent DAG (Mermaid), per-check evidence glyphs, and a rolling event log. No build step — Tailwind and Mermaid via CDN.
 
 ## How it works
 
 ### Concepts
 
-- **Goal** — one sentence describing what success looks like.
-- **Intent** — a discrete unit of work toward the goal. Statuses: `open`, `in_progress`, `done`, `paused`. Intents can declare `dependsOn` to form a DAG; gpr enforces topological order.
-- **Check** — an acceptance criterion attached to an intent, with a `verifyCmd` gpr runs to confirm the check actually holds.
-- **Proof** — recorded evidence that a check passed: command exit, file fingerprint, screenshot, manual sign-off.
-- **Signal** — structured trailer block emitted by the agent at the end of each iteration. Tells gpr what happened: `done`, `progress`, `blocked`, `decide`, or `rescope`.
-- **Spine.md** — externalised memory; the agent rewrites it as decisions crystallise; survives clean-context rounds.
-- **Pinned.md** — read-only invariants; the agent is told never to overwrite this file.
-- **Steer.md** — human-editable interrupt; the agent reads it first every iteration.
+| Term | Meaning |
+|---|---|
+| **Goal** | One sentence describing what success looks like. |
+| **Intent** | A discrete unit of work toward the goal. Statuses: `open`, `in_progress`, `done`, `paused`. Intents declare `dependsOn` to form a DAG. |
+| **Check** | An acceptance criterion attached to an intent, with a `verifyCmd` gpr runs to confirm it actually holds. |
+| **Proof** | Recorded evidence that a check passed: command exit, file fingerprint, screenshot, manual sign-off. |
+| **Signal** | Structured trailer block emitted by the agent each iteration. Tells gpr what happened. |
+| **Spine.md** | Externalised memory; the agent rewrites it as decisions crystallise. |
+| **Pinned.md** | Read-only invariants; the agent is told never to overwrite this file. |
+| **Steer.md** | Human-editable interrupt; the agent reads it first every iteration. |
 
 ### One iteration
 
 ```
-1. Read Steer.md         (if non-empty, do that work and clear it)
-2. Pick next intent      (continue an in-progress one if any; else priority+deps)
-3. Render the prompt     (goal in <untrusted_goal> tag, intent block, pinned, spine, errors, budget, signal grammar)
-4. Spawn the agent       (clean session, per-iter timeout, stream parsed for tokens)
-5. Parse the signal      (refuse to mark done without an explicit signal)
-6. Run audit             (Layer 1 verifyCmd; on failure, revert to open + log)
-7. Update signature      (payload-hash + checkbox count for stalemate detector)
-8. Decide stop condition (achieved | blocked | decide | rescope | budget_limited | stalemate | zero_progress)
+1. Read Steer.md         → if non-empty, do that work and clear it
+2. Pick next intent      → continue an in-progress one if any; else priority + deps
+3. Render the prompt     → goal in <untrusted_goal>, intent block, pinned, spine, errors, budget, signal grammar
+4. Spawn the agent       → clean session, per-iter timeout, stream parsed for tokens
+5. Parse the signal      → refuse to mark done without an explicit signal
+6. Run audit             → Layer-1 verifyCmd; on fail, revert to open + log
+7. (--deep-audit)        → Layer-2 cross-model verifier scrutinises done-flips
+8. Update signature      → payload-hash + checkbox count for stalemate detector
+9. Decide stop condition → achieved | blocked | decide | rescope | budget_limited | stalemate | zero_progress
 ```
 
+When all intents flip done, gpr runs the **reverse audit** — a final spec-drift sweep that re-checks every closed intent and inspects the cumulative diff against the goal. It can refuse to declare `achieved` and reopen intents or recommend a rescope.
+
 ### Signal grammar
+
+The agent emits exactly one block at the end of each iteration:
 
 ```
 ---gpr-signal---
@@ -97,61 +120,45 @@ Mode C (MCP server, accessible from Codex / Cursor / any MCP client) is on the r
 | 7 | `rescope` | Agent proposed a plan rewrite; awaiting human review |
 | 8 | `unmet_disk_full` | Less than 1GB free at iteration start |
 
----
+## Two ways to invoke
+
+| Mode | What it is | Best for |
+|---|---|---|
+| **CLI** (`gpr run`) | External process. gpr spawns the agent as a subprocess each round. | Autonomous overnight runs, headless servers, CI. |
+| **Claude skill** (`/gpr`) | One iteration runs inside your current Claude TUI session. The CLI is the canonical state machine; the skill borrows your active session as the worker. | Already in Claude and want to ratchet without leaving. |
+
+An MCP server (Mode C) is on the roadmap once usage patterns settle.
+
+## The /gpr-grill flow
+
+If you start `/gpr` without an existing Plan, it activates **gpr-grill** — a cleanroom interactive spec interview that walks you through goal lock, success metric, tech stack, anti-goals, intent decomposition, per-intent checks, and budget. Seven beats, one question per turn, refuses hand-waving and weak `verifyCmd`s. Output is a complete `.gpr/Plan.json` ready for the loop.
 
 ## Compared to prior art
 
-|  | snarktank/ralph | iannuttall/ralph | PageAI/ralph-loop | codex `/goal` | gpr |
-|---|---:|---:|---:|---:|---:|
-| Verifiable completion | regex only | regex only | regex only | model self-audit | cross-model audit |
-| Anti-spin guard | no | no | no | yes | yes |
-| Compaction-immune | no | no | partial | yes | yes |
+|  | snarktank/ralph | iannuttall/ralph | PageAI/ralph-loop | codex `/goal` | **gpr** |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Verifiable completion | regex | regex | regex | self-audit | cross-model |
+| Anti-spin guard | — | — | — | yes | yes |
+| Compaction-immune | — | — | partial | yes | yes |
 | Crash-resumable | partial | yes | partial | yes | yes |
-| Human-in-loop | no | no | yes | no | yes |
-| Budget-governed | no | no | no | yes | yes |
-| Spec-drift sweep | no | no | no | no | yes |
-| Multi-agent | partial | yes | yes | no | yes |
-| Replay forensics | no | no | no | no | yes |
-
----
-
-## Install
-
-```bash
-git clone https://github.com/AdityaVG13/GPR ~/.local/share/gpr
-ln -sf ~/.local/share/gpr/bin/gpr ~/.local/bin/gpr
-gpr doctor
-```
-
-Requirements: Python 3.10+, bash 5+, git, jq, plus at least one of: `claude`, `codex`, `opencode`, `gemini` on `$PATH`. Run `gpr doctor` to confirm.
-
-For the Claude skill:
-
-```bash
-~/.local/share/gpr/install/install.sh
-```
-
-This copies `SKILL.md` to `~/.claude/skills/gpr/` and registers the `/gpr`, `/gpr-status`, `/gpr-steer` slash commands.
-
----
+| Human-in-loop | — | — | yes | — | yes |
+| Budget-governed | — | — | — | yes | yes |
+| Spec-drift sweep | — | — | — | — | yes |
+| Multi-agent | partial | yes | yes | — | yes |
+| Replay forensics | — | — | — | — | yes |
 
 ## Reference
 
-- [SKILL.md](install/skill/SKILL.md) — exact instructions Claude follows for one iteration
+- [SKILL.md](install/skill/SKILL.md) — what Claude does for one iteration
 - [DESIGN.md](DESIGN.md) — design rationale and credit to prior art
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to add an agent backend, write a check, or propose a feature
 - [CHANGELOG.md](CHANGELOG.md) — release notes
-
----
+- [examples/hello-fastapi/](examples/hello-fastapi/) — three-intent worked example
 
 ## Cleanroom statement
 
-gpr was designed after surveying snarktank/ralph, iannuttall/ralph, PageAI-Pro/ralph-loop, mikeyobrien/ralph-orchestrator, francescoalemanno/dex, breezewish/CodexPotter, and the OpenAI codex `/goal` implementation. All concepts were re-derived independently; no prompt text or source code was copied from any of these projects. The `<untrusted_goal>` framing, the `Steer.md` interrupt file, the case-split stall notes, the payload-hash signature detector, and the cross-model Layer-2 auditor each draw on prior art for inspiration but were rewritten from first principles. Specific design ancestry is credited in [DESIGN.md](DESIGN.md).
-
----
+gpr was designed after surveying snarktank/ralph, iannuttall/ralph, PageAI-Pro/ralph-loop, mikeyobrien/ralph-orchestrator, francescoalemanno/dex, breezewish/CodexPotter, and the OpenAI codex `/goal` implementation. All concepts re-derived independently; no prompt text or source code was copied. Specific design ancestry is credited in [DESIGN.md](DESIGN.md).
 
 ## License
 
-[Apache 2.0](LICENSE).
-
-Copyright 2026 Aditya and contributors.
+[Apache 2.0](LICENSE). Copyright 2026 Aditya and contributors.
