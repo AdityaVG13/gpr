@@ -1,5 +1,9 @@
 Output docs/demo.gif
 
+# Regenerate this recording with:
+#   GPR_HOME=$(git rev-parse --show-toplevel) vhs docs/demo.tape
+# (so the tape is portable across contributors)
+
 Set Shell zsh
 Set FontSize 14
 Set Width 1280
@@ -11,7 +15,7 @@ Set TypingSpeed 32ms
 Hide
 Type "cd /tmp && rm -rf demo-gpr && mkdir demo-gpr && cd demo-gpr && git init -q -b main"
 Enter
-Type "alias gpr=/Users/aditya/Developer/gpr/bin/gpr"
+Type "alias gpr=$GPR_HOME/bin/gpr"
 Enter
 Type "clear"
 Enter
@@ -26,7 +30,7 @@ Enter
 Sleep 1500ms
 
 Hide
-Type "python3 /Users/aditya/Developer/gpr/docs/seed-demo-plan.py"
+Type "python3 $GPR_HOME/docs/seed-demo-plan.py"
 Enter
 Type "clear"
 Enter

@@ -289,13 +289,23 @@ def revert_to_open(plan: dict[str, Any], intent_id: str, failure: dict) -> dict[
     return it
 
 
+MAX_GOAL_LEN = 2000
+MAX_INTENT_TITLE_LEN = 200
+MAX_CHECK_DESC_LEN = 500
+MAX_VERIFYCMD_LEN = 8192
+
+
 def lint(plan: dict[str, Any]) -> list[str]:
     """Return human-readable warnings about Plan quality. Empty == clean."""
     warnings: list[str] = []
+    if len(plan.get("goal", "")) > MAX_GOAL_LEN:
+        warnings.append(f"goal exceeds {MAX_GOAL_LEN} chars")
     ids = [it["id"] for it in plan["intents"]]
     if len(ids) != len(set(ids)):
         warnings.append("duplicate intent ids")
     for it in plan["intents"]:
+        if len(it.get("title", "")) > MAX_INTENT_TITLE_LEN:
+            warnings.append(f"{it['id']}: title exceeds {MAX_INTENT_TITLE_LEN} chars")
         if it["status"] not in INTENT_STATUSES:
             warnings.append(f"{it['id']}: unknown status {it['status']!r}")
         for dep in it["dependsOn"]:
@@ -304,7 +314,15 @@ def lint(plan: dict[str, Any]) -> list[str]:
             if dep == it["id"]:
                 warnings.append(f"{it['id']}: depends on itself")
         for ch in it["checks"]:
+            if len(ch.get("description", "")) > MAX_CHECK_DESC_LEN:
+                warnings.append(
+                    f"{it['id']}/{ch['id']}: description exceeds {MAX_CHECK_DESC_LEN} chars"
+                )
             vc = ch.get("verifyCmd")
+            if vc and len(vc) > MAX_VERIFYCMD_LEN:
+                warnings.append(
+                    f"{it['id']}/{ch['id']}: verifyCmd exceeds {MAX_VERIFYCMD_LEN} chars"
+                )
             if not vc:
                 warnings.append(f"{it['id']}/{ch['id']}: no verifyCmd (manual gate)")
                 continue
@@ -323,6 +341,11 @@ def lint(plan: dict[str, Any]) -> list[str]:
                 warnings.append(
                     f"{it['id']}/{ch['id']}: trivial verifyCmd ({stripped!r}) — "
                     "always passes"
+                )
+            if "|| true" in stripped or "; true" in stripped or stripped.endswith("|| :"):
+                warnings.append(
+                    f"{it['id']}/{ch['id']}: verifyCmd swallows failure with '|| true' "
+                    "or similar — the audit will pass even when the command fails"
                 )
     cycle = dag_cycle(plan)
     if cycle:

@@ -105,6 +105,30 @@ def test_lint_trivial_verifycmd(tmp_project):
     assert any("trivial verifyCmd" in w for w in warns)
 
 
+def test_lint_swallowed_failure(tmp_project):
+    p = plan_mod.init(tmp_project, "demo", "Build X", "main")
+    it = plan_mod.empty_intent("I", "x")
+    it["checks"] = [plan_mod.empty_check("C1", "y", "pytest -q || true")]
+    plan_mod.add_intent(p, it)
+    warns = plan_mod.lint(p)
+    assert any("swallows failure" in w for w in warns)
+
+
+def test_lint_oversize_goal(tmp_project):
+    p = plan_mod.init(tmp_project, "demo", "x" * (plan_mod.MAX_GOAL_LEN + 100), "main")
+    plan_mod.add_intent(p, plan_mod.empty_intent("I", "ok"))
+    warns = plan_mod.lint(p)
+    assert any("goal exceeds" in w for w in warns)
+
+
+def test_lint_oversize_intent_title(tmp_project):
+    p = plan_mod.init(tmp_project, "demo", "g", "main")
+    it = plan_mod.empty_intent("I", "x" * (plan_mod.MAX_INTENT_TITLE_LEN + 50))
+    plan_mod.add_intent(p, it)
+    warns = plan_mod.lint(p)
+    assert any("title exceeds" in w for w in warns)
+
+
 def test_lint_unknown_dependency(tmp_project):
     p = plan_mod.init(tmp_project, "demo", "Build X", "main")
     it = plan_mod.empty_intent("A", "a")

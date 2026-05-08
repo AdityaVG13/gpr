@@ -27,6 +27,15 @@ uv.lock
 .coverage
 htmlcov/
 
+# Secrets — these never go into git. Keep .env.example tracked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+service-account*.json
+
 # Local dev
 *.log
 *.tmp

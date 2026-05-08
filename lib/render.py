@@ -14,12 +14,15 @@ from .state import budget as budget_mod
 from .state import signal as signal_mod
 
 
-def _read_or_empty(path: Path, max_bytes: int = 16_384) -> str:
+def _read_or_empty(path: Path, max_bytes: int = 16_384, redact: bool = False) -> str:
     if not path.exists():
         return ""
     text = path.read_text(errors="replace")
     if len(text) > max_bytes:
-        return text[-max_bytes:]
+        text = text[-max_bytes:]
+    if redact:
+        from .state import redact as redact_mod
+        text = redact_mod.redact(text)
     return text
 
 
@@ -327,7 +330,7 @@ def continuation(
     pinned = _read_or_empty(gpr_dir / "Pinned.md")
     spine = _read_or_empty(gpr_dir / "Spine.md")
     steer = _read_or_empty(gpr_dir / "Steer.md", max_bytes=4_096)
-    errors = _read_or_empty(gpr_dir / "errors.log", max_bytes=4_096)
+    errors = _read_or_empty(gpr_dir / "errors.log", max_bytes=4_096, redact=True)
     bstatus = budget_mod.status(plan, state)
     wrap_warn = ""
     if bstatus["wrap_up"]:

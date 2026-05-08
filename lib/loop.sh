@@ -5,7 +5,7 @@
 # shellcheck source=lib/agents.sh
 # shellcheck source=lib/notify.sh
 
-GPR_LIB="${GPR_LIB:-/Users/aditya/Developer/gpr/lib}"
+GPR_LIB="${GPR_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 # shellcheck disable=SC1091
 source "$GPR_LIB/term.sh"
 # shellcheck disable=SC1091
