@@ -47,10 +47,9 @@ loop_iteration() {
     log_fail "next-intent failed: $next_json"
     return 1
   fi
-  local intent_id
-  intent_id=$(echo "$next_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['intent']['id'])")
-  local intent_title
-  intent_title=$(echo "$next_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['intent']['title'])")
+  local intent_id intent_title
+  intent_id=$(echo "$next_json" | jq -r '.intent.id')
+  intent_title=$(echo "$next_json" | jq -r '.intent.title')
   log_info "iter $iter — intent ${C_BOLD}${intent_id}${C_RESET} ${C_GRAY}${intent_title}${C_RESET}"
 
   # 4. Render the continuation prompt to iter_dir/prompt.md.
@@ -116,7 +115,7 @@ print(f'{i} {o}')")
     }
   echo "$ingest_json" > "$iter_dir/signal.json"
   local sig_status
-  sig_status=$(echo "$ingest_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['signal']['status'])")
+  sig_status=$(echo "$ingest_json" | jq -r '.signal.status')
   log_info "signal: ${C_BOLD}$sig_status${C_RESET}"
 
   # 8. Audit summary.
@@ -126,10 +125,7 @@ import sys, json
 d = json.load(sys.stdin); a = d.get('audit')
 if a is None: print('no-audit')
 else: print(f\"audit: {a['pass']}/{a['pass']+a['fail']+a['manual']} pass, all_pass={a['all_pass']}\")")
-  audit_all_pass=$(echo "$ingest_json" | python3 -c "
-import sys, json
-d = json.load(sys.stdin); a = d.get('audit')
-print('true' if a and a.get('all_pass') else 'false')")
+  audit_all_pass=$(echo "$ingest_json" | jq -r 'if .audit and .audit.all_pass then "true" else "false" end')
   if [[ "$audit_summary" != "no-audit" ]]; then
     log_info "$audit_summary"
   fi
@@ -175,7 +171,7 @@ print('true' if a and a.get('all_pass') else 'false')")
   local sig_json
   sig_json=$(GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli record-signature --json)
   local stalled
-  stalled=$(echo "$sig_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['stalled'])")
+  stalled=$(echo "$sig_json" | jq -r '.stalled')
 
   # 10. Classify by signal.
   case "$sig_status" in
@@ -211,7 +207,7 @@ print('true' if a and a.get('all_pass') else 'false')")
   local budget_status
   budget_status=$(cat "$iter_dir/budget.json")
   local hard_stop
-  hard_stop=$(echo "$budget_status" | python3 -c "import sys,json; print(json.load(sys.stdin)['hard_stop'])" 2>/dev/null || echo False)
+  hard_stop=$(echo "$budget_status" | jq -r '.hard_stop' 2>/dev/null || echo false)
   if [[ "$hard_stop" == "True" ]]; then
     log_warn "BUDGET HARD STOP"
     notify budget "gpr budget" "hard stop reached"

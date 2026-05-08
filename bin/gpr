@@ -37,6 +37,7 @@ ${C_BOLD}COMMANDS${C_RESET}
   ${C_CYAN}doctor${C_RESET}            check installed agents, python, git, jq
   ${C_CYAN}render${C_RESET}            write a self-contained HTML view of the Plan
   ${C_CYAN}config${C_RESET}            list / get / set viewer + run defaults
+  ${C_CYAN}get${C_RESET}               print a Plan.json field by dotted path
   ${C_CYAN}commit-intent${C_RESET}     write a conventional-commits message for an intent
   ${C_CYAN}pr-description${C_RESET}    write a PR description for the whole run
   ${C_CYAN}confidence-audit${C_RESET}  scrutinise the Plan for loopholes; loop until 100% confident
@@ -156,11 +157,11 @@ cmd_status() {
   local json
   json=$(python3 -m lib.cli status --json 2>&1) || { echo "$json" >&2; return 1; }
   local goal project branch status iter
-  goal=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['goal'])")
-  project=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['project'])")
-  branch=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['branch'])")
-  status=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
-  iter=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['iteration'])")
+  goal=$(echo "$json" | jq -r .goal)
+  project=$(echo "$json" | jq -r .project)
+  branch=$(echo "$json" | jq -r .branch)
+  status=$(echo "$json" | jq -r .status)
+  iter=$(echo "$json" | jq -r .iteration)
   banner "gpr status" "$project  $C_GRAY|$C_RESET  branch $branch"
   hr
   row "goal"      "$goal"   "$C_WHITE"
@@ -179,18 +180,18 @@ for k in order:
   echo
   log_info "next intent:"
   local next_id next_title
-  next_id=$(echo "$json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('next_intent_id') or '(none)')")
-  next_title=$(echo "$json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('next_intent_title') or '')")
+  next_id=$(echo "$json" | jq -r '.next_intent_id // "(none)"')
+  next_title=$(echo "$json" | jq -r '.next_intent_title // ""')
   printf "    %s%s%s %s%s%s\n" "$C_BOLD" "$next_id" "$C_RESET" "$C_GRAY" "$next_title" "$C_RESET"
   echo
   log_info "budget:"
   local frac axis cost tin tout wall
-  frac=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['fraction_used'])")
-  axis=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['binding_axis'] or '(none)')")
-  cost=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['costUsd'])")
-  tin=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['tokensInput'])")
-  tout=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['tokensOutput'])")
-  wall=$(echo "$json" | python3 -c "import sys,json; print(json.load(sys.stdin)['budget']['wallClockSeconds'])")
+  frac=$(echo "$json" | jq -r '.budget.fraction_used')
+  axis=$(echo "$json" | jq -r '.budget.binding_axis // "(none)"')
+  cost=$(echo "$json" | jq -r '.budget.costUsd')
+  tin=$(echo "$json" | jq -r '.budget.tokensInput')
+  tout=$(echo "$json" | jq -r '.budget.tokensOutput')
+  wall=$(echo "$json" | jq -r '.budget.wallClockSeconds')
   local barstr; barstr=$(bar "$frac" 28)
   printf "    %s  %s  %s%s of binding axis (%s)%s\n" \
     "$barstr" "$(awk -v f="$frac" 'BEGIN{printf "%5.1f%%", f*100}')" "$C_GRAY" "" "$axis" "$C_RESET"
@@ -291,6 +292,7 @@ case "$cmd" in
   doctor)            cmd_doctor "$@" ;;
   render)            python3 -m lib.cli render "$@" ;;
   config)            python3 -m lib.cli config "$@" ;;
+  get)               python3 -m lib.cli get "$@" ;;
   commit-intent)
     # shellcheck source=lib/commit.sh
     source "$GPR_LIB/commit.sh"

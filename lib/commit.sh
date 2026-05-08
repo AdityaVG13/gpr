@@ -75,7 +75,7 @@ cmd_confidence_audit() {
       return 0
     fi
     local rec
-    rec=$(printf '%s' "$verdict_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('recommendation','?'))" 2>/dev/null || echo "?")
+    rec=$(printf '%s' "$verdict_json" | jq -r '.recommendation // "?"' 2>/dev/null || echo "?")
     log_warn "verdict: not confident (recommendation=$rec)"
     if [[ "$rec" == "rewrite_plan" ]]; then
       log_warn "recommend full rewrite — see .gpr/Steer.md and rerun /gpr-grill"

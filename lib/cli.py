@@ -574,6 +574,80 @@ def _do_render(root: Path, args: argparse.Namespace) -> Path:
     return out_path
 
 
+def _resolve_jsonpath(obj: Any, path: str) -> Any:
+    """Walk a dotted path with optional [N] array indexing.
+
+    Examples:
+      goal                         → obj["goal"]
+      intents[0].id                → obj["intents"][0]["id"]
+      globalState.iteration        → obj["globalState"]["iteration"]
+      audit.details[0].result      → obj["audit"]["details"][0]["result"]
+    """
+    cursor = obj
+    if not path:
+        return cursor
+    import re
+    parts = re.findall(r"[^.\[\]]+|\[\d+\]", path)
+    for raw in parts:
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                idx = int(raw[1:-1])
+            except ValueError as exc:
+                raise KeyError(f"bad array index {raw!r} in {path!r}") from exc
+            if not isinstance(cursor, list):
+                raise KeyError(f"{raw} on non-list at {path!r}")
+            cursor = cursor[idx]
+        else:
+            if isinstance(cursor, dict):
+                if raw not in cursor:
+                    raise KeyError(f"missing key {raw!r} in {path!r}")
+                cursor = cursor[raw]
+            elif isinstance(cursor, list):
+                try:
+                    cursor = cursor[int(raw)]
+                except (ValueError, IndexError) as exc:
+                    raise KeyError(f"bad path segment {raw!r} in {path!r}") from exc
+            else:
+                raise KeyError(f"cannot index {raw!r} into {type(cursor).__name__}")
+    return cursor
+
+
+def cmd_get(args: argparse.Namespace) -> int:
+    """Print a JSON field looked up by dotted path.
+
+    Reads JSON from --stdin or a file path, walks the path, prints the bare
+    value (newline-terminated for scalars; pretty-printed for containers
+    when --json is given, else single-line).
+    """
+    if args.stdin:
+        text = sys.stdin.read()
+    elif args.file:
+        text = Path(args.file).read_text()
+    else:
+        # Default: load Plan.json from the project root.
+        text = plan_mod.plan_path(_project_root()).read_text()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        print(f"error: invalid JSON: {exc}", file=sys.stderr)
+        return 1
+    try:
+        value = _resolve_jsonpath(data, args.path or "")
+    except KeyError as exc:
+        if args.default is not None:
+            print(args.default)
+            return 0
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.json or isinstance(value, (dict, list)):
+        print(json.dumps(value, ensure_ascii=False, indent=2 if args.json else None))
+    elif value is None:
+        print("")
+    else:
+        print(value)
+    return 0
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     root = _project_root()
     out_path = _do_render(root, args)
@@ -907,6 +981,19 @@ def main() -> int:
                       help="Write the PR body to a file")
     pipr.add_argument("--json", action="store_true")
     pipr.set_defaults(func=cmd_ingest_pr)
+
+    pg = sub.add_parser("get",
+                        help="Print a JSON field by dotted path. Reads .gpr/Plan.json by default.")
+    pg.add_argument("path", help="dotted path: goal | intents[0].id | globalState.iteration")
+    pg.add_argument("--stdin", action="store_true",
+                    help="Read JSON from stdin instead of Plan.json")
+    pg.add_argument("--file", default=None,
+                    help="Read JSON from this file instead of Plan.json")
+    pg.add_argument("--default", default=None,
+                    help="Print this if path is missing instead of erroring")
+    pg.add_argument("--json", action="store_true",
+                    help="Pretty-print containers and quote scalars as JSON")
+    pg.set_defaults(func=cmd_get)
 
     prn = sub.add_parser("render")
     prn.add_argument("--output", default=None,
