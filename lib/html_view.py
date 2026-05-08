@@ -1,20 +1,35 @@
-"""Render the Plan as a self-contained, interactive HTML page.
+"""Render the Plan as a single-file interactive HTML PRD viewer.
 
-Single-file output. Tailwind via CDN for utility classes, Mermaid via CDN
-for the intent DAG, vanilla JS for everything else: sticky TOC with
-IntersectionObserver, hash-based deep linking, filter chips with
-localStorage, copy-to-clipboard on every verifyCmd, keyboard navigation
-(j/k/?//), Mermaid current-intent highlight, per-check details
-expansion, theme toggle (paper/sepia/dark), print stylesheet.
+Architecture (from cleanroom deep research):
+- Vanilla HTML + Alpine.js for declarative interactivity, no build.
+- Three-column layout: sticky TOC rail (with scroll-progress fill),
+  the paper card (editorial body), and a marginalia rail for
+  decisions, drift, and open questions.
+- Phase Gateway (Specify → Plan → Tasks → Implement → Done) maps
+  each intent into a phase derived from its status + dependency
+  satisfaction. Reader gets a one-glance picture of the run state.
+- Intents are hover/focus-expanding cards (CSS-only via
+  grid-template-rows transition); click toggles a sticky open state.
+- Acceptance Criteria rendered in Given/When/Then per Check.
+- Mermaid DAG is click-to-zoom into a fullscreen <dialog> with
+  svg-pan-zoom controls.
+- Cmd-K palette indexes every section heading, intent, check, and
+  event; arrow keys + Enter to jump.
+- Spotlight cursor: a subtle radial-gradient blob follows the
+  pointer with rAF lerp.
+- Theme toggle: paper / sepia / dark / arctic.
+- Print stylesheet expands every <details> and breaks intents on
+  page boundaries.
 
-Cleanroom CSS — editorial serif body, mono metadata, paper card,
-cobalt accent, hairline rules.
+Cleanroom — no proprietary class names, no copied prompts,
+no replicated layouts from commercial PRD products.
 """
 
 from __future__ import annotations
 
 import html
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +44,6 @@ def _esc(s: Any) -> str:
 
 
 def _completion_glyph(intent: dict[str, Any]) -> str:
-    """Aggregate glyph for an intent's completion state."""
     if intent["status"] == "done":
         return "●"
     if intent["status"] == "paused":
@@ -45,25 +59,49 @@ def _completion_glyph(intent: dict[str, Any]) -> str:
     return "◐"
 
 
-def _check_glyph(intent: dict[str, Any], check_id: str) -> str:
+def _check_glyph_class(intent: dict[str, Any], check_id: str) -> str:
     proofs = {p.get("checkId"): p for p in intent.get("proofs", [])}
     if check_id in proofs:
-        return '<span class="glyph glyph-pass" aria-label="proven">●</span>'
+        return "glyph-pass"
     failures = [
         f for f in intent.get("auditFailures", [])
         for d in f.get("audit", {}).get("details", [])
         if d.get("checkId") == check_id and d.get("result") == "fail"
     ]
     if failures:
-        return '<span class="glyph glyph-fail" aria-label="audit failed">●</span>'
-    return '<span class="glyph glyph-pending" aria-label="unchecked">○</span>'
+        return "glyph-fail"
+    return "glyph-pending"
+
+
+def _phase_for(intent: dict[str, Any], all_done_ids: set[str]) -> str:
+    """Derive a Phase Gateway phase from intent status + dependency state."""
+    s = intent["status"]
+    if s == "done":
+        return "implement"
+    if s == "in_progress":
+        return "tasks"
+    if s == "paused":
+        return "paused"
+    deps_satisfied = all(d in all_done_ids for d in intent.get("dependsOn", []))
+    if deps_satisfied:
+        return "plan"
+    return "specify"
+
+
+PHASE_LABELS = {
+    "specify": ("Specify", "Goal sketched. Dependencies still need to land."),
+    "plan": ("Plan", "Ready to grab. Dependencies satisfied."),
+    "tasks": ("Tasks", "In flight this round."),
+    "implement": ("Implement", "Audit passed. Code shipped."),
+    "paused": ("Paused", "Held for human."),
+}
 
 
 def _intent_dag_mermaid(plan: dict[str, Any]) -> str:
     lines = ["graph LR"]
     for it in plan["intents"]:
         node_id = _esc(it["id"])
-        title = _esc(it["title"])[:34]
+        title = _esc(it["title"])[:32]
         cls = {
             "open": "open",
             "in_progress": "wip",
@@ -80,92 +118,89 @@ def _intent_dag_mermaid(plan: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _budget_meter(plan: dict[str, Any], state: dict[str, Any]) -> str:
-    bs = budget_mod.status(plan, state)
-    f = bs["fraction_used"] or 0.0
-    pct = round(f * 100, 1)
-    if f >= 0.95:
-        cls = "bar-danger"
-    elif f >= 0.6:
-        cls = "bar-warn"
-    else:
-        cls = "bar-ok"
-    width = min(100, max(0, pct))
-    axis = bs["binding_axis"] or "—"
-    return (
-        '<div class="budget-meter">'
-        '<div class="meta-row">'
-        f'<span class="meta">binding axis</span>'
-        f'<span class="meta">{_esc(axis)}</span>'
-        '</div>'
-        f'<div class="bar-track"><div class="bar-fill {cls}" style="width:{width}%"></div></div>'
-        f'<div class="meta-row meta-pct">{pct}%</div>'
-        '</div>'
-    )
-
-
-def _verifycmd_block(cmd: str | None) -> str:
-    if not cmd:
-        return '<div class="cmd cmd-manual">manual gate</div>'
-    cmd_esc = _esc(cmd)
-    return (
-        '<div class="cmd-row">'
-        f'<code class="cmd">{cmd_esc}</code>'
-        f'<button class="copy-btn" data-copy="{cmd_esc}" title="copy">copy</button>'
-        '</div>'
-    )
-
-
-def _intent_section(idx: int, intent: dict[str, Any]) -> str:
+def _intent_card_html(idx: int, intent: dict[str, Any], all_done_ids: set[str]) -> str:
     num = f"{idx:02d}"
     deps = ", ".join(_esc(d) for d in intent["dependsOn"]) or "—"
-    checks_html = "".join(
-        '<li class="check-item">'
-        f'<span class="check-glyph">{_check_glyph(intent, ch["id"])}</span>'
-        f'<div class="check-body">'
-        f'<div class="check-head"><span class="check-id">{_esc(ch["id"])}</span> '
-        f'<span class="check-desc">{_esc(ch["description"])}</span></div>'
-        f'{_verifycmd_block(ch.get("verifyCmd"))}'
-        '</div>'
-        '</li>'
-        for ch in intent.get("checks", [])
-    )
+    phase = _phase_for(intent, all_done_ids)
+    phase_label, _ = PHASE_LABELS[phase]
+
+    checks_html_lines = []
+    for ch in intent.get("checks", []):
+        gcls = _check_glyph_class(intent, ch["id"])
+        cmd = ch.get("verifyCmd")
+        cmd_html = (
+            f'<div class="cmd-row"><code class="cmd">{_esc(cmd)}</code>'
+            f'<button class="copy-btn" data-copy="{_esc(cmd)}" title="copy">copy</button></div>'
+            if cmd else
+            '<div class="cmd cmd-manual">manual gate</div>'
+        )
+        checks_html_lines.append(
+            f'<li class="check-item">'
+            f'<span class="check-glyph {gcls}">●</span>'
+            f'<div class="check-body">'
+            f'<div class="check-head"><span class="check-id">{_esc(ch["id"])}</span> '
+            f'<span class="check-desc">{_esc(ch["description"])}</span></div>'
+            f'{cmd_html}'
+            '</div></li>'
+        )
+    checks_html = "".join(checks_html_lines)
+
+    fails_html = ""
     fails = intent.get("auditFailures", [])
-    fail_block = ""
     if fails:
         latest = fails[-1]
-        fail_block = (
+        fails_html = (
             '<details class="audit-failure">'
             '<summary>last audit failure</summary>'
             f'<pre>{_esc(json.dumps(latest, indent=2)[:600])}</pre>'
             '</details>'
         )
+
+    proofs_count = len(intent.get("proofs", []))
+    checks_count = len(intent.get("checks", []))
+
     return (
-        f'<section id="intent-{_esc(intent["id"])}" class="intent-section" '
+        f'<article id="intent-{_esc(intent["id"])}" '
+        f'class="intent-card" '
         f'data-status="{_esc(intent["status"])}" '
+        f'data-phase="{phase}" '
         f'data-id="{_esc(intent["id"])}" '
-        f'data-title="{_esc(intent["title"]).lower()}">'
+        f'data-title="{_esc(intent["title"]).lower()}" '
+        f'x-data="{{ open: false }}">'
+
+        f'<header class="intent-summary" tabindex="0" @click="open = !open" '
+        f'@keydown.enter.prevent="open = !open" @keydown.space.prevent="open = !open" '
+        f':aria-expanded="open">'
         f'<div class="intent-num">{num}</div>'
-        '<div class="intent-body">'
-        f'<div class="intent-head">'
+        f'<div class="intent-headline">'
         f'<h3 class="intent-title">{_esc(intent["title"])}</h3>'
-        f'<button class="copy-btn copy-id" data-copy="{_esc(intent["id"])}" title="copy intent id">{_esc(intent["id"])}</button>'
-        f'</div>'
         f'<div class="intent-meta">'
+        f'<span class="phase-pill phase-{phase}" title="phase: {phase_label}">{phase_label}</span>'
         f'<span class="status status-{_esc(intent["status"])}">{_esc(intent["status"].replace("_", " "))}</span>'
-        '<span class="sep">·</span>'
         f'<span class="meta">priority {_esc(intent["priority"])}</span>'
-        '<span class="sep">·</span>'
         f'<span class="meta">depends · {_esc(deps)}</span>'
-        '</div>'
+        f'</div>'
+        f'</div>'
+        f'<div class="intent-counters">'
+        f'<span class="counter-num">{proofs_count}<span class="counter-frac">/{checks_count}</span></span>'
+        f'<span class="counter-label">proofs</span>'
+        f'</div>'
+        f'<button class="copy-btn copy-id" data-copy="{_esc(intent["id"])}" '
+        f'@click.stop>{_esc(intent["id"])}</button>'
+        f'<span class="chevron" :class="{{ \'open\': open }}">›</span>'
+        f'</header>'
+
+        f'<div class="intent-detail" x-show="open" x-collapse>'
+        f'<div class="intent-detail-inner">'
         f'<ul class="checks">{checks_html}</ul>'
-        f'{fail_block}'
-        '</div>'
-        '</section>'
+        f'{fails_html}'
+        f'</div>'
+        f'</div>'
+        '</article>'
     )
 
 
-def _toc_block(plan: dict[str, Any]) -> str:
+def _toc_html(plan: dict[str, Any]) -> str:
     rows = []
     for it in plan["intents"]:
         rows.append(
@@ -179,7 +214,130 @@ def _toc_block(plan: dict[str, Any]) -> str:
     return f'<ol class="toc-list">{"".join(rows)}</ol>'
 
 
-def _events_block(project_root: Path, n: int = 24) -> str:
+def _phase_gateway_html(plan: dict[str, Any]) -> str:
+    all_done_ids = {it["id"] for it in plan["intents"] if it["status"] == "done"}
+    buckets: dict[str, list[dict[str, Any]]] = {k: [] for k in PHASE_LABELS}
+    for it in plan["intents"]:
+        buckets[_phase_for(it, all_done_ids)].append(it)
+    columns = []
+    order = ["specify", "plan", "tasks", "implement"]
+    for phase in order:
+        items = buckets[phase]
+        label, hint = PHASE_LABELS[phase]
+        cards = "".join(
+            f'<a class="gw-item" href="#intent-{_esc(it["id"])}">'
+            f'<span class="gw-id">{_esc(it["id"])}</span>'
+            f'<span class="gw-title">{_esc(it["title"])[:34]}</span>'
+            f'</a>'
+            for it in items
+        ) or '<span class="gw-empty">—</span>'
+        columns.append(
+            f'<div class="gw-col" data-phase="{phase}">'
+            f'<div class="gw-head">'
+            f'<span class="gw-label">{label}</span>'
+            f'<span class="gw-count">{len(items)}</span>'
+            f'</div>'
+            f'<div class="gw-hint">{hint}</div>'
+            f'<div class="gw-items">{cards}</div>'
+            f'</div>'
+        )
+    paused = buckets["paused"]
+    paused_html = ""
+    if paused:
+        paused_html = (
+            '<div class="gw-paused">'
+            '<span class="gw-label">Paused</span>'
+            + "".join(
+                f'<a class="gw-item" href="#intent-{_esc(it["id"])}">{_esc(it["id"])} · {_esc(it["title"])[:32]}</a>'
+                for it in paused
+            )
+            + '</div>'
+        )
+    return f'<div class="gateway">{"".join(columns)}</div>{paused_html}'
+
+
+def _acceptance_html(plan: dict[str, Any]) -> str:
+    rows = []
+    for it in plan["intents"]:
+        for ch in it.get("checks", []):
+            cmd = ch.get("verifyCmd")
+            given = f"intent {_esc(it['id'])} ({_esc(it['title'])}) is in scope"
+            when = (
+                f"running <code class=\"inline-cmd\">{_esc(cmd)}</code>"
+                if cmd else "the manual gate is reviewed"
+            )
+            then = _esc(ch["description"])
+            gcls = _check_glyph_class(it, ch["id"])
+            rows.append(
+                '<li class="ac-item">'
+                f'<span class="check-glyph {gcls}">●</span>'
+                f'<div class="ac-body">'
+                f'<div class="ac-id">{_esc(it["id"])} · {_esc(ch["id"])}</div>'
+                f'<div><span class="ac-kw">Given</span> {given}</div>'
+                f'<div><span class="ac-kw">When</span> {when}</div>'
+                f'<div><span class="ac-kw">Then</span> {then}</div>'
+                '</div></li>'
+            )
+    if not rows:
+        return '<p class="empty">no acceptance criteria yet</p>'
+    return f'<ul class="ac-list">{"".join(rows)}</ul>'
+
+
+def _decision_log_html(plan: dict[str, Any], project_root: Path) -> str:
+    decisions: list[dict[str, Any]] = []
+    for it in plan["intents"]:
+        for f in it.get("auditFailures", []):
+            decisions.append({
+                "kind": "audit-fail",
+                "intent": it["id"],
+                "title": it["title"],
+                "ts": f.get("at", ""),
+                "detail": f.get("reason", "audit failure"),
+            })
+    events = events_mod.tail(project_root, n=80)
+    for e in events:
+        ts = e.get("t", 0)
+        ts_iso = (
+            datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if ts else ""
+        )
+        if e.get("kind") == "reverse_audit":
+            decisions.append({
+                "kind": "reverse-audit",
+                "ts": ts_iso,
+                "detail": f"recommendation: {e.get('recommendation')} — clean: {e.get('clean')}",
+            })
+        elif e.get("kind") == "layer2_audit":
+            v = e.get("verdict", {})
+            decisions.append({
+                "kind": "layer-2",
+                "intent": e.get("intent", ""),
+                "ts": ts_iso,
+                "detail": f"verdict: {v.get('verdict')} · " + ", ".join(v.get("reasons", [])),
+            })
+        elif e.get("kind") == "confidence_audit":
+            decisions.append({
+                "kind": "confidence",
+                "ts": ts_iso,
+                "detail": f"confident: {e.get('confident')} · loopholes: {len(e.get('loopholes') or [])}",
+            })
+    decisions.sort(key=lambda d: d.get("ts", ""), reverse=True)
+    if not decisions:
+        return '<p class="empty">no decisions logged yet — audits will appear here</p>'
+    rows = []
+    for d in decisions[:30]:
+        rows.append(
+            '<li class="decision-item">'
+            f'<span class="decision-kind">{_esc(d["kind"])}</span>'
+            + (f'<span class="decision-intent">{_esc(d.get("intent", ""))}</span>' if d.get("intent") else "")
+            + f'<span class="decision-ts">{_esc(d.get("ts", ""))}</span>'
+            f'<span class="decision-detail">{_esc(d.get("detail", ""))}</span>'
+            '</li>'
+        )
+    return f'<ul class="decision-list">{"".join(rows)}</ul>'
+
+
+def _events_html(project_root: Path, n: int = 30) -> str:
     events = events_mod.tail(project_root, n=n)
     if not events:
         return '<p class="empty">no events yet</p>'
@@ -187,7 +345,6 @@ def _events_block(project_root: Path, n: int = 24) -> str:
     for e in reversed(events):
         kind = _esc(e.get("kind", "?"))
         ts = e.get("t", 0)
-        from datetime import datetime, timezone
         time_str = (
             datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S")
             if ts else "?"
@@ -217,14 +374,46 @@ def _events_block(project_root: Path, n: int = 24) -> str:
     return f'<table class="events">{"".join(rows)}</table>'
 
 
-def _intent_counts(plan: dict[str, Any]) -> dict[str, int]:
-    counts: dict[str, int] = {}
+def _command_palette_data(plan: dict[str, Any]) -> str:
+    """Build the searchable command list as a JSON literal Alpine reads."""
+    items: list[dict[str, str]] = []
+    items.extend([
+        {"kind": "section", "label": "Goal", "target": "#section-goal"},
+        {"kind": "section", "label": "Phase Gateway", "target": "#section-phases"},
+        {"kind": "section", "label": "Intent Graph", "target": "#section-graph"},
+        {"kind": "section", "label": "Intents", "target": "#section-intents"},
+        {"kind": "section", "label": "Acceptance Criteria", "target": "#section-ac"},
+        {"kind": "section", "label": "Decision Log", "target": "#section-decisions"},
+        {"kind": "section", "label": "Events", "target": "#section-events"},
+        {"kind": "action", "label": "Theme: paper", "action": "theme:paper"},
+        {"kind": "action", "label": "Theme: sepia", "action": "theme:sepia"},
+        {"kind": "action", "label": "Theme: dark", "action": "theme:dark"},
+        {"kind": "action", "label": "Theme: arctic", "action": "theme:arctic"},
+        {"kind": "action", "label": "Filter: all", "action": "filter:all"},
+        {"kind": "action", "label": "Filter: open", "action": "filter:open"},
+        {"kind": "action", "label": "Filter: in_progress", "action": "filter:in_progress"},
+        {"kind": "action", "label": "Filter: done", "action": "filter:done"},
+        {"kind": "action", "label": "Filter: paused", "action": "filter:paused"},
+        {"kind": "action", "label": "Open intent graph fullscreen", "action": "graph:fullscreen"},
+        {"kind": "action", "label": "Toggle spotlight cursor", "action": "spotlight:toggle"},
+        {"kind": "action", "label": "Print PRD", "action": "print"},
+    ])
     for it in plan["intents"]:
-        counts[it["status"]] = counts.get(it["status"], 0) + 1
-    return counts
+        items.append({
+            "kind": "intent",
+            "label": f"{it['id']} · {it['title']}",
+            "target": f"#intent-{it['id']}",
+        })
+        for ch in it.get("checks", []):
+            items.append({
+                "kind": "check",
+                "label": f"{it['id']} · {ch['id']} — {ch['description'][:80]}",
+                "target": f"#intent-{it['id']}",
+            })
+    return json.dumps(items)
 
 
-CSS = """
+CSS = r"""
 :root[data-theme="paper"] {
   --bg: #fbfaf6;
   --paper: #ffffff;
@@ -242,6 +431,7 @@ CSS = """
   --paper-shadow: 0 1px 4px 1px rgba(0,0,0,0.05),
                   0 1px 1px 0 rgba(0,0,0,0.05),
                   0 -1px 1px 1px #ffffff inset;
+  --spotlight: rgba(31,56,115,0.06);
 }
 :root[data-theme="sepia"] {
   --bg: #f4ecd8;
@@ -260,10 +450,11 @@ CSS = """
   --paper-shadow: 0 1px 4px 1px rgba(74,57,28,0.10),
                   0 1px 1px 0 rgba(74,57,28,0.06),
                   0 -1px 1px 1px #fdf8e8 inset;
+  --spotlight: rgba(107,58,29,0.08);
 }
 :root[data-theme="dark"] {
   --bg: #0f0e0c;
-  --paper: #1a1815;
+  --paper: #181613;
   --ink: #f5f3ee;
   --ink-muted: #a8a29e;
   --ink-faint: #57534e;
@@ -276,10 +467,31 @@ CSS = """
   --fail: #f87171;
   --warn: #fbbf24;
   --paper-shadow: 0 1px 0 0 rgba(255,255,255,0.04) inset,
-                  0 1px 4px 1px rgba(0,0,0,0.4);
+                  0 1px 8px 1px rgba(0,0,0,0.5);
+  --spotlight: rgba(143,164,210,0.10);
+}
+:root[data-theme="arctic"] {
+  --bg: #eef3f6;
+  --paper: #fbfdfe;
+  --ink: #0f172a;
+  --ink-muted: #475569;
+  --ink-faint: #94a3b8;
+  --hairline: #d8e1ea;
+  --hairline-strong: #b6c4d2;
+  --accent: #0f4c75;
+  --accent-soft: #4a7ba6;
+  --accent-faint: #e6eef5;
+  --pass: #0e7c6a;
+  --fail: #b91c1c;
+  --warn: #92400e;
+  --paper-shadow: 0 1px 4px 1px rgba(15,76,117,0.06),
+                  0 1px 1px 0 rgba(15,76,117,0.04),
+                  0 -1px 1px 1px #ffffff inset;
+  --spotlight: rgba(15,76,117,0.08);
 }
 
 * { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 html, body {
   margin: 0; padding: 0;
   background: var(--bg);
@@ -288,18 +500,56 @@ html, body {
   font-feature-settings: 'liga', 'calt';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background 200ms ease, color 200ms ease;
 }
-body { transition: background 200ms ease, color 200ms ease; }
 
+/* --- top scroll-progress bar --- */
+.scroll-rail-top {
+  position: fixed; top: 0; left: 0; right: 0; height: 2px;
+  background: transparent; z-index: 100;
+  pointer-events: none;
+}
+.scroll-rail-top::before {
+  content: ""; display: block; height: 100%;
+  width: var(--scroll-pct, 0%);
+  background: var(--accent);
+  transition: width 80ms linear;
+}
+
+/* --- spotlight cursor --- */
+.spotlight {
+  position: fixed; pointer-events: none; z-index: 1;
+  width: 600px; height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--spotlight) 0%, transparent 60%);
+  transform: translate(-50%, -50%);
+  left: 0; top: 0;
+  transition: opacity 200ms ease;
+  opacity: 1;
+  mix-blend-mode: multiply;
+}
+:root[data-theme="dark"] .spotlight { mix-blend-mode: screen; }
+.spotlight.off { opacity: 0; }
+
+/* --- toolbar --- */
 .toolbar {
-  position: sticky; top: 0; z-index: 40;
+  position: sticky; top: 2px; z-index: 40;
   display: flex; align-items: center; gap: 12px;
-  padding: 12px 16px;
-  background: color-mix(in oklab, var(--bg) 92%, transparent);
-  backdrop-filter: blur(8px);
+  padding: 12px 24px;
+  background: color-mix(in oklab, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--hairline);
 }
-.toolbar .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.brand {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-muted);
+  margin-right: 16px;
+  user-select: none;
+}
+.brand strong { color: var(--accent); font-weight: 600; }
+
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .chip {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em;
@@ -316,58 +566,124 @@ body { transition: background 200ms ease, color 200ms ease; }
   color: var(--accent);
   border-color: var(--accent);
 }
-.toolbar .search {
-  flex: 1;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 12px;
-  padding: 6px 10px;
-  background: transparent;
-  border: 1px solid var(--hairline);
-  color: var(--ink);
-  outline: none;
-  min-width: 120px;
-  max-width: 320px;
-}
-.toolbar .search:focus { border-color: var(--accent); }
-.toolbar .actions { display: flex; gap: 4px; margin-left: auto; }
-.toolbar .actions button {
+
+.toolbar-actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+.toolbar-actions button, .toolbar-actions .kbd-hint {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em;
-  padding: 5px 9px;
+  padding: 5px 10px;
   background: transparent;
   border: 1px solid var(--hairline-strong);
   color: var(--ink-muted);
   cursor: pointer;
   transition: all 150ms ease;
+  border-radius: 4px;
 }
-.toolbar .actions button:hover { color: var(--ink); border-color: var(--accent-soft); }
-.toolbar .actions button[aria-pressed="true"] {
+.toolbar-actions button:hover { color: var(--ink); border-color: var(--accent-soft); }
+.toolbar-actions button[aria-pressed="true"] {
+  color: var(--accent); border-color: var(--accent);
+}
+.kbd-hint {
+  display: inline-flex; gap: 6px; align-items: center;
+  cursor: pointer;
+}
+.kbd-hint kbd {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 3px;
   color: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-faint);
 }
 
-main {
-  max-width: 1024px;
+/* --- 3-column layout --- */
+.layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 240px;
+  gap: 32px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 28px 24px 80px;
+  padding: 32px 24px 96px;
+  align-items: start;
 }
-@media (min-width: 800px) {
-  main { padding: 40px 32px 120px; }
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: 200px minmax(0, 1fr); }
+  .marginalia { display: none; }
+}
+@media (max-width: 800px) {
+  .layout { grid-template-columns: 1fr; gap: 16px; padding: 16px; }
+  .toc-rail { display: none; }
 }
 
+/* --- TOC rail --- */
+.toc-rail {
+  position: sticky; top: 96px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.toc-rail-progress {
+  position: relative;
+  border-left: 1px solid var(--hairline);
+  padding-left: 14px;
+}
+.toc-rail-progress::before {
+  content: "";
+  position: absolute; left: -1px; top: 0;
+  width: 1px;
+  height: var(--scroll-pct, 0%);
+  background: var(--accent);
+}
+.toc-list {
+  list-style: none; padding: 0; margin: 0;
+}
+.toc-list li.hidden { display: none; }
+.toc-list a {
+  display: grid;
+  grid-template-columns: 14px 36px 1fr;
+  gap: 8px;
+  padding: 5px 6px;
+  text-decoration: none;
+  color: var(--ink-muted);
+  align-items: baseline;
+  border-radius: 3px;
+  font-size: 13px;
+  line-height: 1.35;
+  transition: background 100ms ease, color 100ms ease;
+}
+.toc-list a:hover { background: var(--accent-faint); color: var(--ink); }
+.toc-list .toc-glyph { color: var(--ink-faint); font-size: 9px; }
+.toc-list li[data-status="done"] .toc-glyph { color: var(--pass); }
+.toc-list li[data-status="in_progress"] .toc-glyph { color: var(--accent); }
+.toc-list li[data-status="paused"] .toc-glyph { color: var(--warn); }
+.toc-list .toc-id {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+.toc-list .toc-title { color: inherit; }
+.toc-list li.is-current a {
+  background: var(--accent-faint);
+  color: var(--ink);
+}
+.toc-list li.is-current .toc-id, .toc-list li.is-current .toc-title { color: var(--accent); }
+
+/* --- paper --- */
 .paper {
   background: var(--paper);
   border-radius: 2px;
   box-shadow: var(--paper-shadow);
-  padding: 56px 40px;
-  position: relative;
+  padding: 56px 48px;
+  min-width: 0;
 }
 @media (min-width: 800px) {
   .paper { padding: 80px 64px; }
 }
 
-.measure { max-width: 640px; margin-left: auto; margin-right: auto; }
-.measure-wide { max-width: 720px; margin-left: auto; margin-right: auto; }
+.measure { max-width: 640px; margin: 0 auto; }
+.measure-wide { max-width: 760px; margin: 0 auto; }
 
 .meta {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -376,28 +692,24 @@ main {
   letter-spacing: 0.14em;
   color: var(--ink-faint);
 }
-.meta-strong { color: var(--accent); }
-.meta-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
-.meta-pct {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-faint);
-  text-align: right;
-  margin-top: 6px;
-}
+.meta-strong { color: var(--accent); font-weight: 500; }
 .sep { color: var(--ink-faint); margin: 0 8px; }
 
 .spec-header { margin-bottom: 0; }
-.spec-meta { margin-bottom: 12px; }
+.spec-meta { margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 8px 0; }
 .spec-title {
   font-family: 'EB Garamond', Georgia, serif;
   font-weight: 500;
-  font-size: 38px;
-  line-height: 1.15;
+  font-size: 40px;
+  line-height: 1.12;
   letter-spacing: -0.012em;
   color: var(--ink);
-  margin: 0;
+  margin: 0 0 12px 0;
+}
+.spec-lede {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--ink-muted);
 }
 
 hr.hairline {
@@ -413,31 +725,40 @@ h2.section-h {
   letter-spacing: 0.16em;
   font-weight: 600;
   color: var(--ink-muted);
-  margin: 0 0 24px 0;
+  margin: 0 0 28px 0;
+  display: flex; align-items: center; gap: 10px;
+}
+h2.section-h::after {
+  content: "";
+  flex: 1; height: 1px;
+  background: var(--hairline);
 }
 
+/* --- stats --- */
 .stats {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 24px;
-  margin-bottom: 24px;
+  gap: 32px;
+  margin-bottom: 32px;
 }
+@media (max-width: 700px) { .stats { grid-template-columns: 1fr; gap: 16px; } }
 .stat-label {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--ink-faint);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .stat-value {
   font-family: 'EB Garamond', Georgia, serif;
-  font-size: 32px;
+  font-size: 36px;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   line-height: 1;
+  font-weight: 500;
 }
-.stat-value .frac { color: var(--ink-faint); font-size: 24px; }
+.stat-value .frac { color: var(--ink-faint); font-size: 26px; font-weight: 400; }
 .stat-sub {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px;
@@ -448,166 +769,242 @@ h2.section-h {
 .budget-meter { width: 100%; }
 .bar-track {
   width: 100%; height: 3px; background: var(--hairline);
-  overflow: hidden;
+  overflow: hidden; margin-top: 6px;
 }
 .bar-fill { height: 100%; transition: width 200ms ease; }
 .bar-ok { background: var(--accent); }
 .bar-warn { background: var(--warn); }
 .bar-danger { background: var(--fail); }
 
-.toc-block {
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
-  padding: 24px 0;
-  margin: 0 auto 56px;
-  max-width: 720px;
-}
-.toc-list {
-  list-style: none;
-  padding: 0; margin: 0;
+/* --- phase gateway --- */
+.gateway {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 24px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
 }
-@media (max-width: 700px) { .toc-list { grid-template-columns: 1fr; } }
-.toc-list li { line-height: 1.6; }
-.toc-list li.hidden { display: none; }
-.toc-list a {
-  display: grid;
-  grid-template-columns: 18px 48px 1fr;
-  gap: 8px;
-  padding: 4px 0;
-  text-decoration: none;
-  color: var(--ink);
-  align-items: baseline;
+@media (max-width: 800px) { .gateway { grid-template-columns: 1fr 1fr; } }
+.gw-col {
+  border: 1px solid var(--hairline);
   border-radius: 2px;
-  transition: background 100ms ease;
+  padding: 14px;
+  background: var(--paper);
+  position: relative;
+  overflow: hidden;
 }
-.toc-list a:hover { background: var(--accent-faint); }
-.toc-list .toc-glyph { color: var(--ink-faint); font-size: 10px; }
-.toc-list li[data-status="done"] .toc-glyph { color: var(--pass); }
-.toc-list li[data-status="in_progress"] .toc-glyph { color: var(--accent); }
-.toc-list li[data-status="paused"] .toc-glyph { color: var(--warn); }
-.toc-list .toc-id {
+.gw-col[data-phase="implement"] { border-color: var(--pass); }
+.gw-col[data-phase="tasks"] { border-color: var(--accent); }
+.gw-col[data-phase="plan"] { border-color: var(--accent-soft); }
+.gw-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 6px;
+}
+.gw-label {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--ink-muted); font-weight: 600;
+}
+.gw-col[data-phase="implement"] .gw-label { color: var(--pass); }
+.gw-col[data-phase="tasks"] .gw-label { color: var(--accent); }
+.gw-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px; font-variant-numeric: tabular-nums;
   color: var(--ink-faint);
 }
-.toc-list .toc-title { color: var(--ink-muted); font-size: 14px; }
-.toc-list .is-current a {
-  background: var(--accent-faint);
+.gw-hint {
+  font-size: 12px; color: var(--ink-faint);
+  margin-bottom: 10px; line-height: 1.4;
+  font-style: italic;
 }
-.toc-list .is-current .toc-id,
-.toc-list .is-current .toc-title { color: var(--accent); }
+.gw-items { display: flex; flex-direction: column; gap: 4px; }
+.gw-item {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  text-decoration: none;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--hairline);
+  transition: color 150ms ease;
+}
+.gw-item:hover { color: var(--accent); }
+.gw-item:last-child { border-bottom: none; }
+.gw-id {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; color: var(--ink-faint);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.gw-title { font-size: 12.5px; }
+.gw-empty { color: var(--ink-faint); font-style: italic; font-size: 12px; }
+.gw-paused {
+  margin-top: 12px; padding: 10px 14px;
+  border: 1px dashed var(--warn); border-radius: 2px;
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline;
+}
 
-.intent-section {
-  display: grid;
-  grid-template-columns: 64px 1fr;
-  gap: 32px;
-  margin-bottom: 48px;
-  scroll-margin-top: 80px;
-  transition: opacity 200ms ease;
+/* --- intent cards --- */
+.intent-list { display: flex; flex-direction: column; gap: 8px; }
+.intent-card {
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: var(--paper);
+  scroll-margin-top: 96px;
+  transition: opacity 200ms ease, border-color 150ms ease;
 }
-.intent-section.hidden { display: none; }
-.intent-section.dimmed { opacity: 0.35; }
+.intent-card:hover { border-color: var(--hairline-strong); }
+.intent-card.hidden { display: none; }
+.intent-summary {
+  display: grid;
+  grid-template-columns: 48px 1fr auto auto auto;
+  gap: 16px;
+  padding: 16px 18px;
+  cursor: pointer;
+  align-items: center;
+  user-select: none;
+  outline: none;
+}
+.intent-summary:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 .intent-num {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
+  font-size: 10.5px; tabular-nums;
   color: var(--ink-faint);
-  padding-top: 6px;
+  text-transform: uppercase;
 }
-.intent-head {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
-  margin-bottom: 4px;
-}
+.intent-headline { min-width: 0; }
 .intent-title {
   font-family: 'EB Garamond', Georgia, serif;
   font-weight: 500;
   font-size: 19px;
   color: var(--ink);
-  margin: 0;
+  margin: 0 0 6px 0;
+  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
 }
-.intent-meta { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin-bottom: 16px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-faint); }
-.status { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em; }
+.intent-meta {
+  display: flex; flex-wrap: wrap; gap: 0; align-items: center;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--ink-faint);
+}
+.intent-meta > * { margin-right: 12px; }
+.intent-meta > *:last-child { margin-right: 0; }
+.phase-pill {
+  padding: 2px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.phase-pill.phase-implement { color: var(--pass); border-color: var(--pass); }
+.phase-pill.phase-tasks { color: var(--accent); border-color: var(--accent); }
+.phase-pill.phase-plan { color: var(--accent-soft); border-color: var(--accent-soft); }
+.phase-pill.phase-paused { color: var(--warn); border-color: var(--warn); }
 .status-open { color: var(--ink-faint); }
 .status-in_progress { color: var(--accent); }
 .status-done { color: var(--pass); }
 .status-paused { color: var(--warn); }
 
-.checks { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--hairline); }
-.check-item {
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--hairline);
+.intent-counters {
+  text-align: right;
+  font-family: 'EB Garamond', Georgia, serif;
 }
-.check-item:last-child { border-bottom: none; }
-.check-glyph { font-size: 12px; padding-top: 4px; }
-.glyph-pass { color: var(--pass); }
-.glyph-fail { color: var(--fail); }
-.glyph-pending { color: var(--ink-faint); }
-.check-head { line-height: 1.55; }
-.check-id {
+.counter-num {
+  font-size: 22px; line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.counter-frac { color: var(--ink-faint); font-size: 16px; font-weight: 400; }
+.counter-label {
+  display: block; margin-top: 2px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.16em;
   color: var(--ink-faint);
-  margin-right: 8px;
 }
-.check-desc { color: var(--ink); }
-
-.cmd-row {
-  display: flex; align-items: stretch; gap: 6px;
-  margin-top: 6px;
-}
-.cmd {
-  flex: 1;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
-  background: var(--accent-faint);
-  color: var(--ink-muted);
-  padding: 6px 10px;
-  border: 1px solid var(--hairline);
-  word-break: break-all;
-  white-space: pre-wrap;
-}
-.cmd-manual { color: var(--ink-faint); font-style: italic; background: transparent; }
 .copy-btn {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  padding: 0 10px;
+  padding: 4px 8px;
   background: transparent;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--hairline-strong);
   color: var(--ink-faint);
   cursor: pointer;
   transition: all 100ms ease;
-  white-space: nowrap;
+  border-radius: 3px;
 }
 .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
-.copy-id {
-  align-self: baseline;
-  padding: 4px 8px;
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
+.copy-id { background: var(--accent-faint); color: var(--accent); border-color: var(--accent-faint); }
+.copy-id:hover { background: var(--accent); color: white; }
+.chevron {
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 22px;
+  color: var(--ink-faint);
+  transition: transform 200ms ease;
+  display: inline-block;
 }
+.chevron.open { transform: rotate(90deg); color: var(--accent); }
+
+.intent-detail {
+  border-top: 1px solid var(--hairline);
+  overflow: hidden;
+}
+.intent-detail-inner { padding: 14px 18px 18px 82px; }
+.checks {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.check-item {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 12px;
+}
+.check-glyph {
+  font-size: 11px;
+  padding-top: 6px;
+}
+.glyph-pass { color: var(--pass); }
+.glyph-fail { color: var(--fail); }
+.glyph-pending { color: var(--ink-faint); }
+.check-head { line-height: 1.5; margin-bottom: 4px; }
+.check-id {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  margin-right: 8px;
+}
+.check-desc { color: var(--ink); font-size: 14.5px; }
+.cmd-row { display: flex; gap: 6px; }
+.cmd, .inline-cmd {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  background: var(--accent-faint);
+  color: var(--ink-muted);
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  word-break: break-all;
+  white-space: pre-wrap;
+  border-radius: 2px;
+}
+.cmd { flex: 1; }
+.inline-cmd { display: inline; padding: 1px 4px; font-size: 10.5px; }
+.cmd-manual { color: var(--ink-faint); font-style: italic; background: transparent; }
 
 details.audit-failure {
-  margin-top: 16px;
-  padding-left: 16px;
+  margin-top: 14px;
+  padding-left: 14px;
   border-left: 2px solid var(--fail);
 }
 details.audit-failure summary {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--fail);
   cursor: pointer;
   list-style: none;
-  user-select: none;
 }
 details.audit-failure summary::before {
   content: "▸ "; color: var(--ink-faint); font-size: 10px;
@@ -621,6 +1018,98 @@ details.audit-failure pre {
   margin: 8px 0 0 0;
 }
 
+/* --- acceptance criteria --- */
+.ac-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 16px; }
+.ac-item {
+  display: grid; grid-template-columns: 16px 1fr; gap: 14px;
+  padding: 14px 18px;
+  border-left: 2px solid var(--hairline);
+  background: var(--paper);
+}
+.ac-id {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+.ac-body div { line-height: 1.55; font-size: 14px; }
+.ac-kw {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--accent);
+  font-weight: 600;
+  margin-right: 8px;
+  display: inline-block;
+  width: 50px;
+}
+
+/* --- decision log --- */
+.decision-list { list-style: none; padding: 0; margin: 0; }
+.decision-item {
+  display: grid;
+  grid-template-columns: 110px 70px 140px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  align-items: baseline;
+}
+.decision-item:last-child { border-bottom: none; }
+.decision-kind { color: var(--accent); text-transform: uppercase; letter-spacing: 0.14em; font-weight: 600; }
+.decision-intent { color: var(--ink); }
+.decision-ts { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.decision-detail { color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* --- mermaid --- */
+.mermaid-frame {
+  position: relative; padding: 16px;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  cursor: zoom-in;
+  transition: border-color 150ms ease;
+}
+.mermaid-frame:hover { border-color: var(--accent-soft); }
+.mermaid-frame::after {
+  content: "click to zoom";
+  position: absolute; top: 8px; right: 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--ink-faint);
+  opacity: 0; transition: opacity 150ms ease;
+  pointer-events: none;
+}
+.mermaid-frame:hover::after { opacity: 1; }
+.mermaid { display: flex; justify-content: center; }
+.mermaid svg { max-width: 100%; height: auto; }
+
+dialog.zoom-dlg {
+  width: 90vw; height: 90vh;
+  max-width: none; max-height: none;
+  border: none; padding: 0;
+  background: var(--paper);
+  box-shadow: 0 30px 60px rgba(0,0,0,0.3);
+  border-radius: 2px;
+}
+dialog.zoom-dlg::backdrop {
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  backdrop-filter: blur(8px);
+}
+.zoom-body { width: 100%; height: 100%; padding: 24px; overflow: hidden; }
+.zoom-body svg { width: 100%; height: 100%; }
+.zoom-close {
+  position: absolute; top: 12px; right: 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  padding: 6px 10px;
+  background: var(--paper); border: 1px solid var(--hairline-strong);
+  cursor: pointer; border-radius: 3px;
+}
+
+/* --- events --- */
 .events { width: 100%; border-collapse: collapse; }
 .events tr { border-bottom: 1px solid var(--hairline); }
 .events tr:last-child { border-bottom: none; }
@@ -636,51 +1125,102 @@ details.audit-failure pre {
   color: var(--ink); width: 160px;
 }
 .events .ev-detail { color: var(--ink-muted); }
-
 .empty { color: var(--ink-faint); font-style: italic; }
 
-footer.bottom {
-  text-align: center;
+/* --- marginalia --- */
+.marginalia {
+  position: sticky; top: 96px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+.margin-block {
+  border-top: 1px solid var(--hairline);
+  padding-top: 16px;
+  margin-bottom: 32px;
+}
+.margin-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--ink-faint);
+  margin-bottom: 10px;
+}
+.margin-block p, .margin-block li { font-size: 13px; line-height: 1.55; color: var(--ink-muted); margin: 0 0 6px 0; }
+.margin-block ul { padding-left: 14px; margin: 0; }
+.margin-block .pinned-quote {
+  font-style: italic;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  font-family: 'EB Garamond', Georgia, serif;
+}
+
+/* --- command palette --- */
+.palette-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: color-mix(in oklab, var(--bg) 78%, transparent);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 18vh;
+}
+.palette {
+  width: min(640px, 92vw);
+  background: var(--paper);
+  border-radius: 6px;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.25);
+  overflow: hidden;
+}
+.palette input {
+  width: 100%;
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 18px;
+  padding: 18px 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink);
+  outline: none;
+}
+.palette input::placeholder { color: var(--ink-faint); }
+.palette-list { list-style: none; padding: 6px; margin: 0; max-height: 50vh; overflow-y: auto; }
+.palette-item {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 10px; align-items: baseline;
+  padding: 9px 12px;
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.palette-item.is-active { background: var(--accent-faint); color: var(--accent); }
+.palette-item .pi-kind {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--ink-faint);
+}
+.palette-item.is-active .pi-kind { color: var(--accent); }
+.palette-foot {
+  border-top: 1px solid var(--hairline);
+  padding: 8px 14px;
+  display: flex; gap: 16px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
+  text-transform: uppercase; letter-spacing: 0.14em;
   color: var(--ink-faint);
-  margin-top: 32px;
 }
-
-#help-overlay {
-  position: fixed; inset: 0; z-index: 100;
-  background: color-mix(in oklab, var(--bg) 80%, transparent);
-  backdrop-filter: blur(4px);
-  display: none;
-  align-items: center; justify-content: center;
-  padding: 32px;
-}
-#help-overlay[open] { display: flex; }
-#help-overlay .panel {
-  background: var(--paper);
-  box-shadow: var(--paper-shadow);
-  padding: 40px;
-  max-width: 480px;
-  width: 100%;
-  border-radius: 2px;
-}
-#help-overlay h3 {
+.palette-foot kbd {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em;
-  color: var(--ink-muted);
-  margin: 0 0 24px 0;
-}
-#help-overlay dl { display: grid; grid-template-columns: auto 1fr; gap: 12px 24px; margin: 0; }
-#help-overlay dt {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 3px;
+  background: var(--accent-faint);
   color: var(--accent);
+  margin-right: 4px;
 }
-#help-overlay dd { margin: 0; color: var(--ink); }
 
+/* --- toasts --- */
 #toasts {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
   z-index: 90;
@@ -706,12 +1246,26 @@ footer.bottom {
   to { opacity: 0; transform: translateY(-8px); }
 }
 
+footer.bottom {
+  text-align: center;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-faint);
+  margin-top: 32px;
+}
+
+/* --- print --- */
 @media print {
-  .toolbar, #help-overlay, #toasts, .copy-btn { display: none !important; }
+  .toolbar, .toc-rail, .marginalia, .palette-overlay, #toasts,
+  .copy-btn, .scroll-rail-top, .spotlight, .chevron, .mermaid-frame::after { display: none !important; }
   body { background: white; color: black; }
+  .layout { display: block; padding: 0; max-width: none; }
   .paper { box-shadow: none; padding: 0; }
-  .intent-section { page-break-inside: avoid; opacity: 1 !important; }
-  .intent-section.hidden { display: grid !important; }
+  .intent-card { page-break-inside: avoid; opacity: 1 !important; border: 1px solid #ccc; margin-bottom: 12px; }
+  .intent-card.hidden { display: block !important; }
+  .intent-detail { display: block !important; height: auto !important; overflow: visible !important; }
   details { open: ""; }
   details summary { display: none; }
   details > *:not(summary) { display: block !important; }
@@ -719,153 +1273,234 @@ footer.bottom {
 """
 
 
-JS = """
-(function() {
-  const planId = document.documentElement.dataset.planId || 'default';
-  const lsKey = 'gpr:viewer:' + planId;
-  const state = Object.assign(
-    { filter: 'all', search: '', theme: 'paper' },
-    JSON.parse(localStorage.getItem(lsKey) || '{}')
-  );
+JS = r"""
+document.addEventListener('alpine:init', () => {
+  Alpine.data('app', () => ({
+    filter: 'all',
+    search: '',
+    theme: 'paper',
+    spotlightOn: true,
+    paletteOpen: false,
+    paletteQuery: '',
+    paletteIdx: 0,
+    paletteAll: window.__GPR_PALETTE__ || [],
+    lsKey: 'gpr:viewer:' + (document.documentElement.dataset.planId || 'default'),
 
-  function persist() { localStorage.setItem(lsKey, JSON.stringify(state)); }
+    init() {
+      const stored = JSON.parse(localStorage.getItem(this.lsKey) || '{}');
+      Object.assign(this, stored);
+      this.applyTheme();
+      this.applyFilter();
+      this.bindScroll();
+      this.bindIntersection();
+      this.bindKeyboard();
+      this.bindCopy();
+      this.bindMermaidZoom();
+      this.bindSpotlight();
+    },
 
-  // --- theme ---
-  function applyTheme(t) {
-    document.documentElement.dataset.theme = t;
-    document.querySelectorAll('[data-theme-set]').forEach(b => {
-      b.setAttribute('aria-pressed', String(b.dataset.themeSet === t));
-    });
-  }
-  document.querySelectorAll('[data-theme-set]').forEach(b => {
-    b.addEventListener('click', () => {
-      state.theme = b.dataset.themeSet;
-      applyTheme(state.theme);
-      persist();
-    });
-  });
-  applyTheme(state.theme);
+    persist() {
+      localStorage.setItem(this.lsKey, JSON.stringify({
+        filter: this.filter,
+        search: this.search,
+        theme: this.theme,
+        spotlightOn: this.spotlightOn,
+      }));
+    },
 
-  // --- filter chips ---
-  const sections = Array.from(document.querySelectorAll('.intent-section'));
-  const tocItems = Array.from(document.querySelectorAll('.toc-list li[data-toc-id]'));
-  function applyFilter() {
-    const q = (state.search || '').trim().toLowerCase();
-    const f = state.filter;
-    sections.forEach(s => {
-      const matchesStatus = f === 'all' || s.dataset.status === f;
-      const matchesSearch = !q ||
-        s.dataset.id.toLowerCase().includes(q) ||
-        s.dataset.title.includes(q);
-      s.classList.toggle('hidden', !(matchesStatus && matchesSearch));
-    });
-    tocItems.forEach(li => {
-      const sec = document.getElementById('intent-' + li.dataset.tocId);
-      li.classList.toggle('hidden', sec && sec.classList.contains('hidden'));
-    });
-    document.querySelectorAll('.chip').forEach(c => {
-      c.setAttribute('aria-pressed', String(c.dataset.filter === f));
-    });
-  }
-  document.querySelectorAll('.chip').forEach(c => {
-    c.addEventListener('click', () => {
-      state.filter = c.dataset.filter;
-      applyFilter();
-      persist();
-    });
-  });
-  const searchInput = document.querySelector('.search');
-  if (searchInput) {
-    searchInput.value = state.search;
-    searchInput.addEventListener('input', () => {
-      state.search = searchInput.value;
-      applyFilter();
-      persist();
-    });
-  }
-  applyFilter();
+    setFilter(f) { this.filter = f; this.applyFilter(); this.persist(); },
 
-  // --- copy buttons ---
-  document.querySelectorAll('[data-copy]').forEach(b => {
-    b.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(b.dataset.copy);
-        toast('copied');
-      } catch (e) {
-        toast('copy failed');
-      }
-    });
-  });
+    applyFilter() {
+      const q = (this.search || '').trim().toLowerCase();
+      const f = this.filter;
+      document.querySelectorAll('.intent-card').forEach(s => {
+        const matchesStatus = f === 'all' || s.dataset.status === f;
+        const matchesSearch = !q ||
+          s.dataset.id.toLowerCase().includes(q) ||
+          s.dataset.title.includes(q);
+        s.classList.toggle('hidden', !(matchesStatus && matchesSearch));
+      });
+      document.querySelectorAll('.toc-list li[data-toc-id]').forEach(li => {
+        const sec = document.getElementById('intent-' + li.dataset.tocId);
+        li.classList.toggle('hidden', sec && sec.classList.contains('hidden'));
+      });
+    },
 
-  // --- toasts ---
-  const toastBox = document.getElementById('toasts');
-  function toast(msg) {
-    if (!toastBox) return;
-    const el = document.createElement('div');
-    el.className = 'toast';
-    el.textContent = msg;
-    toastBox.appendChild(el);
-    setTimeout(() => el.remove(), 2000);
-  }
+    setTheme(t) { this.theme = t; this.applyTheme(); this.persist(); },
 
-  // --- keyboard navigation ---
-  function visibleSections() {
-    return sections.filter(s => !s.classList.contains('hidden'));
-  }
-  function currentIdx() {
-    const visible = visibleSections();
-    if (!visible.length) return -1;
-    let best = 0, bestTop = -Infinity;
-    visible.forEach((s, i) => {
-      const top = s.getBoundingClientRect().top;
-      if (top <= 96 && top > bestTop) { bestTop = top; best = i; }
-    });
-    return best;
-  }
-  function jumpTo(idx) {
-    const v = visibleSections();
-    if (!v.length) return;
-    const target = v[Math.max(0, Math.min(v.length - 1, idx))];
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    history.replaceState(null, '', '#' + target.id);
-  }
-  document.addEventListener('keydown', (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-      if (e.key === 'Escape') { e.target.blur(); }
-      return;
-    }
-    const help = document.getElementById('help-overlay');
-    if (e.key === '?') { e.preventDefault(); help.toggleAttribute('open'); }
-    else if (e.key === 'Escape') { help.removeAttribute('open'); }
-    else if (e.key === 'j') { e.preventDefault(); jumpTo(currentIdx() + 1); }
-    else if (e.key === 'k') { e.preventDefault(); jumpTo(currentIdx() - 1); }
-    else if (e.key === '/') { e.preventDefault(); searchInput && searchInput.focus(); }
-  });
+    applyTheme() { document.documentElement.dataset.theme = this.theme; },
 
-  // --- TOC current-section highlight ---
-  if ('IntersectionObserver' in window) {
-    const obs = new IntersectionObserver(entries => {
-      entries.forEach(en => {
-        if (!en.isIntersecting) return;
-        const id = en.target.dataset.id;
-        tocItems.forEach(li => {
-          li.classList.toggle('is-current', li.dataset.tocId === id);
+    /* --- scroll progress rail --- */
+    bindScroll() {
+      const onScroll = () => {
+        const h = document.documentElement.scrollHeight - window.innerHeight;
+        const pct = h > 0 ? Math.max(0, Math.min(100, (window.scrollY / h) * 100)) : 0;
+        document.documentElement.style.setProperty('--scroll-pct', pct.toFixed(2) + '%');
+      };
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+    },
+
+    /* --- TOC current-section --- */
+    bindIntersection() {
+      if (!('IntersectionObserver' in window)) return;
+      const tocItems = document.querySelectorAll('.toc-list li[data-toc-id]');
+      const obs = new IntersectionObserver(entries => {
+        entries.forEach(en => {
+          if (!en.isIntersecting) return;
+          const id = en.target.dataset.id;
+          tocItems.forEach(li => li.classList.toggle('is-current', li.dataset.tocId === id));
         });
-        const dagNode = document.querySelector('.mermaid svg [id^="flowchart-' + id + '-"]');
-        if (dagNode) {
-          document.querySelectorAll('.mermaid svg .is-current-node').forEach(n => n.classList.remove('is-current-node'));
-          dagNode.classList.add('is-current-node');
+      }, { rootMargin: '-30% 0px -60% 0px' });
+      document.querySelectorAll('.intent-card').forEach(s => obs.observe(s));
+    },
+
+    /* --- copy buttons --- */
+    bindCopy() {
+      document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-copy]');
+        if (!btn) return;
+        try {
+          await navigator.clipboard.writeText(btn.dataset.copy);
+          this.toast('copied');
+        } catch (err) {
+          this.toast('copy failed');
         }
       });
-    }, { rootMargin: '-30% 0px -60% 0px' });
-    sections.forEach(s => obs.observe(s));
-  }
+    },
 
-  // --- close help on click-outside ---
-  document.getElementById('help-overlay').addEventListener('click', (e) => {
-    if (e.target.id === 'help-overlay') e.currentTarget.removeAttribute('open');
-  });
-})();
+    /* --- toasts --- */
+    toast(msg) {
+      const tb = document.getElementById('toasts');
+      if (!tb) return;
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.textContent = msg;
+      tb.appendChild(el);
+      setTimeout(() => el.remove(), 2000);
+    },
+
+    /* --- keyboard nav + cmd-k --- */
+    bindKeyboard() {
+      document.addEventListener('keydown', (e) => {
+        const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+        const meta = e.metaKey || e.ctrlKey;
+        if (meta && e.key.toLowerCase() === 'k') { e.preventDefault(); this.openPalette(); return; }
+        if (this.paletteOpen) {
+          if (e.key === 'Escape') { this.closePalette(); return; }
+          if (e.key === 'ArrowDown') { e.preventDefault(); this.paletteIdx = Math.min(this.paletteIdx + 1, this.paletteFiltered().length - 1); this.scrollPaletteIntoView(); return; }
+          if (e.key === 'ArrowUp') { e.preventDefault(); this.paletteIdx = Math.max(this.paletteIdx - 1, 0); this.scrollPaletteIntoView(); return; }
+          if (e.key === 'Enter') { e.preventDefault(); this.runPaletteItem(this.paletteFiltered()[this.paletteIdx]); return; }
+          return;
+        }
+        if (isInput) { if (e.key === 'Escape') e.target.blur(); return; }
+        if (e.key === '?') { e.preventDefault(); this.openPalette(); return; }
+        if (e.key === '/') { e.preventDefault(); this.openPalette(); return; }
+        if (e.key === 'j') { e.preventDefault(); this.jumpRel(+1); return; }
+        if (e.key === 'k') { e.preventDefault(); this.jumpRel(-1); return; }
+      });
+    },
+
+    visibleIntents() {
+      return Array.from(document.querySelectorAll('.intent-card:not(.hidden)'));
+    },
+    currentIntentIdx() {
+      const v = this.visibleIntents();
+      let best = 0, bestTop = -Infinity;
+      v.forEach((s, i) => {
+        const top = s.getBoundingClientRect().top;
+        if (top <= 120 && top > bestTop) { bestTop = top; best = i; }
+      });
+      return best;
+    },
+    jumpRel(d) {
+      const v = this.visibleIntents();
+      if (!v.length) return;
+      const idx = Math.max(0, Math.min(v.length - 1, this.currentIntentIdx() + d));
+      const t = v[idx];
+      t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      history.replaceState(null, '', '#' + t.id);
+    },
+
+    /* --- palette --- */
+    openPalette() {
+      this.paletteOpen = true;
+      this.paletteQuery = '';
+      this.paletteIdx = 0;
+      this.$nextTick(() => {
+        const inp = document.querySelector('.palette input');
+        if (inp) inp.focus();
+      });
+    },
+    closePalette() { this.paletteOpen = false; },
+    paletteFiltered() {
+      const q = (this.paletteQuery || '').trim().toLowerCase();
+      if (!q) return this.paletteAll;
+      return this.paletteAll.filter(it => it.label.toLowerCase().includes(q));
+    },
+    runPaletteItem(item) {
+      if (!item) return;
+      this.closePalette();
+      if (item.target) {
+        location.hash = item.target;
+        const el = document.querySelector(item.target);
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      } else if (item.action) {
+        const [verb, arg] = item.action.split(':');
+        if (verb === 'theme') this.setTheme(arg);
+        else if (verb === 'filter') this.setFilter(arg);
+        else if (verb === 'graph' && arg === 'fullscreen') this.zoomMermaid();
+        else if (verb === 'spotlight' && arg === 'toggle') { this.spotlightOn = !this.spotlightOn; this.persist(); document.querySelector('.spotlight').classList.toggle('off', !this.spotlightOn); }
+        else if (verb === 'print') window.print();
+      }
+    },
+    scrollPaletteIntoView() {
+      this.$nextTick(() => {
+        const el = document.querySelector('.palette-item.is-active');
+        if (el) el.scrollIntoView({ block: 'nearest' });
+      });
+    },
+
+    /* --- mermaid zoom --- */
+    bindMermaidZoom() {
+      const frame = document.querySelector('.mermaid-frame');
+      if (!frame) return;
+      frame.addEventListener('click', () => this.zoomMermaid());
+    },
+    zoomMermaid() {
+      const dlg = document.querySelector('dialog.zoom-dlg');
+      if (!dlg) return;
+      const src = document.querySelector('.mermaid-frame .mermaid svg');
+      const body = dlg.querySelector('.zoom-body');
+      body.innerHTML = '';
+      if (src) body.appendChild(src.cloneNode(true));
+      dlg.showModal();
+      if (window.svgPanZoom && body.querySelector('svg')) {
+        window.__panZoom && window.__panZoom.destroy();
+        window.__panZoom = svgPanZoom(body.querySelector('svg'), {
+          zoomEnabled: true, controlIconsEnabled: false,
+          fit: true, center: true, minZoom: 0.5, maxZoom: 8,
+        });
+      }
+    },
+
+    /* --- spotlight cursor --- */
+    bindSpotlight() {
+      const el = document.querySelector('.spotlight');
+      if (!el) return;
+      el.classList.toggle('off', !this.spotlightOn);
+      let tx = 0, ty = 0, x = 0, y = 0;
+      window.addEventListener('pointermove', (e) => { tx = e.clientX; ty = e.clientY; });
+      const tick = () => {
+        x += (tx - x) * 0.12;
+        y += (ty - y) * 0.12;
+        el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    },
+  }));
+});
 """
 
 
@@ -881,6 +1516,7 @@ HTML_SHELL = """\
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
+<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
 <script type="module">
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
 mermaid.initialize({{
@@ -897,50 +1533,91 @@ mermaid.initialize({{
   }}
 }});
 </script>
+<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
 <style>{css}</style>
+<script>window.__GPR_PALETTE__ = {palette_json};</script>
 </head>
-<body>
+<body x-data="app">
+
+<div class="spotlight"></div>
+<div class="scroll-rail-top"></div>
+
 <nav class="toolbar" role="toolbar">
+  <div class="brand"><strong>gpr</strong> · {brand_proj}</div>
   <div class="chips">
-    <button class="chip" data-filter="all" aria-pressed="true">all</button>
-    <button class="chip" data-filter="open" aria-pressed="false">open</button>
-    <button class="chip" data-filter="in_progress" aria-pressed="false">in&nbsp;progress</button>
-    <button class="chip" data-filter="done" aria-pressed="false">done</button>
-    <button class="chip" data-filter="paused" aria-pressed="false">paused</button>
+    <button class="chip" :aria-pressed="filter==='all'"        @click="setFilter('all')">all</button>
+    <button class="chip" :aria-pressed="filter==='open'"       @click="setFilter('open')">open</button>
+    <button class="chip" :aria-pressed="filter==='in_progress'" @click="setFilter('in_progress')">in&nbsp;progress</button>
+    <button class="chip" :aria-pressed="filter==='done'"       @click="setFilter('done')">done</button>
+    <button class="chip" :aria-pressed="filter==='paused'"     @click="setFilter('paused')">paused</button>
   </div>
-  <input type="search" class="search" placeholder="filter intents · /">
-  <div class="actions">
-    <button data-theme-set="paper" aria-pressed="true">paper</button>
-    <button data-theme-set="sepia" aria-pressed="false">sepia</button>
-    <button data-theme-set="dark" aria-pressed="false">dark</button>
-    <button id="help-btn" title="keyboard shortcuts (?)">?</button>
+  <div class="toolbar-actions">
+    <span class="kbd-hint" @click="openPalette()" title="open command palette"><kbd>⌘</kbd><kbd>K</kbd></span>
+    <button :aria-pressed="theme==='paper'"  @click="setTheme('paper')">paper</button>
+    <button :aria-pressed="theme==='sepia'"  @click="setTheme('sepia')">sepia</button>
+    <button :aria-pressed="theme==='dark'"   @click="setTheme('dark')">dark</button>
+    <button :aria-pressed="theme==='arctic'" @click="setTheme('arctic')">arctic</button>
   </div>
 </nav>
 
-<main>
+<div class="layout">
+  <aside class="toc-rail" aria-label="contents">
+    <div class="toc-rail-progress">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:0.16em;color:var(--ink-faint);margin-bottom:8px;">contents</div>
+      {toc_html}
+    </div>
+  </aside>
+
   <article class="paper">
 {body}
   </article>
-  <footer class="bottom">rendered by gpr render · press ? for shortcuts</footer>
-</main>
 
-<div id="help-overlay" role="dialog" aria-label="keyboard shortcuts">
-  <div class="panel">
-    <h3>keyboard shortcuts</h3>
-    <dl>
-      <dt>j</dt><dd>next visible intent</dd>
-      <dt>k</dt><dd>previous visible intent</dd>
-      <dt>/</dt><dd>focus filter / search</dd>
-      <dt>?</dt><dd>toggle this overlay</dd>
-      <dt>esc</dt><dd>close overlay or unfocus search</dd>
-    </dl>
-  </div>
+  <aside class="marginalia">
+    {marginalia}
+  </aside>
 </div>
+
+<footer class="bottom">rendered by gpr render · ⌘K for palette · ? for help</footer>
+
+<dialog class="zoom-dlg" @close="window.__panZoom && window.__panZoom.destroy()">
+  <button class="zoom-close" @click="$el.closest('dialog').close()">close · esc</button>
+  <div class="zoom-body"></div>
+</dialog>
+
+<template x-teleport="body">
+  <div x-show="paletteOpen" x-cloak class="palette-overlay" @click.self="closePalette()">
+    <div class="palette" role="dialog" aria-label="command palette">
+      <input
+        type="text"
+        x-model="paletteQuery"
+        @input="paletteIdx = 0"
+        placeholder="jump to a section, intent, or run a command…">
+      <ul class="palette-list">
+        <template x-for="(item, idx) in paletteFiltered()" :key="(item.target||item.action)+'_'+idx">
+          <li class="palette-item"
+              :class="{{ 'is-active': idx === paletteIdx }}"
+              @click="runPaletteItem(item)"
+              @mouseenter="paletteIdx = idx">
+            <span class="pi-kind" x-text="item.kind"></span>
+            <span x-text="item.label"></span>
+          </li>
+        </template>
+        <li x-show="paletteFiltered().length === 0" class="palette-item" style="color: var(--ink-faint); font-style: italic;">no matches</li>
+      </ul>
+      <div class="palette-foot">
+        <span><kbd>↑↓</kbd> navigate</span>
+        <span><kbd>↵</kbd> open</span>
+        <span><kbd>esc</kbd> close</span>
+      </div>
+    </div>
+  </div>
+</template>
 
 <div id="toasts" aria-live="polite"></div>
 
 <script>{js}</script>
-<script>document.getElementById('help-btn').addEventListener('click', () => document.getElementById('help-overlay').toggleAttribute('open'));</script>
 </body>
 </html>
 """
@@ -948,18 +1625,26 @@ mermaid.initialize({{
 
 def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
            project_root: Path) -> str:
-    counts = _intent_counts(plan)
+    counts: dict[str, int] = {}
+    for it in plan["intents"]:
+        counts[it["status"]] = counts.get(it["status"], 0) + 1
     total = sum(counts.values())
     done = counts.get("done", 0)
     pct = round((done / total) * 100, 1) if total else 0.0
 
+    all_done_ids = {it["id"] for it in plan["intents"] if it["status"] == "done"}
     intents_html = "".join(
-        _intent_section(i + 1, it) for i, it in enumerate(plan["intents"])
+        _intent_card_html(i + 1, it, all_done_ids)
+        for i, it in enumerate(plan["intents"])
     )
     dag = _intent_dag_mermaid(plan)
-    budget_html = _budget_meter(plan, state)
-    events_html = _events_block(project_root)
-    toc_html = _toc_block(plan)
+    toc_html = _toc_html(plan)
+    palette_json = _command_palette_data(plan)
+
+    bs = budget_mod.status(plan, state)
+    bf = bs["fraction_used"] or 0.0
+    bcls = "bar-danger" if bf >= 0.95 else ("bar-warn" if bf >= 0.6 else "bar-ok")
+    bpct = round(bf * 100, 1)
     cost = state.get("costUsd", 0.0)
     tokens = state.get("tokensInput", 0) + state.get("tokensOutput", 0)
     wall = state.get("wallClockSeconds", 0.0)
@@ -967,8 +1652,23 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
     same_sig = plan["globalState"]["consecutiveSameSignature"]
     persona = plan.get("persona", {}).get("primary", "principal_engineer")
 
+    pinned_text = ""
+    pinned_path = gpr_dir / "Pinned.md"
+    if pinned_path.exists():
+        pinned_text = pinned_path.read_text(errors="replace")[:1200]
+
+    spine_text = ""
+    spine_path = gpr_dir / "Spine.md"
+    if spine_path.exists():
+        spine_text = spine_path.read_text(errors="replace")[:800]
+
+    decision_log = _decision_log_html(plan, project_root)
+    ac_html = _acceptance_html(plan)
+    events_html = _events_html(project_root)
+    phase_gw = _phase_gateway_html(plan)
+
     body = f"""
-    <header class="spec-header measure">
+    <header id="section-goal" class="spec-header measure">
       <div class="meta spec-meta">
         <span>{_esc(plan["project"])}</span>
         <span class="sep">/</span>
@@ -979,6 +1679,7 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
         <span>persona · {_esc(persona.replace("_", " "))}</span>
       </div>
       <h1 class="spec-title">{_esc(plan["goal"])}</h1>
+      <p class="spec-lede">A spec lives in two states at once: a story humans read top-to-bottom, and a contract machines verify line-by-line. This page is both.</p>
     </header>
 
     <hr class="hairline">
@@ -998,10 +1699,13 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
         </div>
         <div>
           <div class="stat-label">budget</div>
-          {budget_html}
+          <div class="budget-meter">
+            <div class="bar-track"><div class="bar-fill {bcls}" style="width:{min(100,bpct)}%"></div></div>
+            <div class="meta" style="margin-top:8px;">{bpct}% of {_esc(bs.get("binding_axis") or "—")}</div>
+          </div>
         </div>
       </div>
-      <div class="meta" style="margin-top: 16px;">
+      <div class="meta" style="margin-top: 18px;">
         cost · ${_esc(round(cost, 2))}
         <span class="sep">·</span>
         tokens · {_esc(tokens)}
@@ -1012,32 +1716,74 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
 
     <hr class="hairline">
 
-    <section class="toc-block">
-      <h2 class="section-h" style="text-align:center;">contents</h2>
-      {toc_html}
+    <section id="section-phases" class="measure-wide">
+      <h2 class="section-h">phase gateway</h2>
+      {phase_gw}
     </section>
 
-    <section class="measure-wide">
+    <hr class="hairline">
+
+    <section id="section-graph" class="measure-wide">
       <h2 class="section-h">intent graph</h2>
-      <div style="overflow-x:auto; padding: 16px 0;">
+      <div class="mermaid-frame">
         <pre class="mermaid">{_esc(dag)}</pre>
       </div>
     </section>
 
     <hr class="hairline">
 
-    <section class="measure-wide">
+    <section id="section-intents" class="measure-wide">
       <h2 class="section-h">intents</h2>
-      {intents_html}
+      <div class="intent-list">
+        {intents_html}
+      </div>
     </section>
 
     <hr class="hairline">
 
-    <section class="measure-wide">
+    <section id="section-ac" class="measure-wide">
+      <h2 class="section-h">acceptance criteria · given/when/then</h2>
+      {ac_html}
+    </section>
+
+    <hr class="hairline">
+
+    <section id="section-decisions" class="measure-wide">
+      <h2 class="section-h">decision log</h2>
+      {decision_log}
+    </section>
+
+    <hr class="hairline">
+
+    <section id="section-events" class="measure-wide">
       <h2 class="section-h">recent events</h2>
       {events_html}
     </section>
     """
+
+    marginalia = ""
+    if pinned_text.strip():
+        marginalia += (
+            '<div class="margin-block">'
+            '<div class="margin-label">pinned · invariants</div>'
+            f'<div class="pinned-quote">{_esc(pinned_text.strip())}</div>'
+            '</div>'
+        )
+    if spine_text.strip():
+        marginalia += (
+            '<div class="margin-block">'
+            '<div class="margin-label">spine · memory</div>'
+            f'<div class="pinned-quote">{_esc(spine_text.strip())}</div>'
+            '</div>'
+        )
+    marginalia += (
+        '<div class="margin-block">'
+        '<div class="margin-label">cleanroom note</div>'
+        '<p>This artifact is dual-audience. Humans get a narrative; '
+        'agents get the embedded plan state. <code class="inline-cmd">gpr render</code> '
+        'regenerates after every iteration.</p>'
+        '</div>'
+    )
 
     plan_id = (
         plan.get("project", "default") + "|"
@@ -1049,4 +1795,8 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
         css=CSS,
         js=JS,
         body=body,
+        toc_html=toc_html,
+        marginalia=marginalia,
+        palette_json=palette_json,
+        brand_proj=_esc(plan["project"]),
     )
