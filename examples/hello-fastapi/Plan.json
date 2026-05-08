@@ -1,0 +1,110 @@
+{
+  "schema_version": "1.0.0",
+  "project": "hello-fastapi",
+  "goal": "Build a FastAPI hello-world app with a single GET /hello endpoint that returns JSON, plus a passing pytest suite.",
+  "branch": "main",
+  "createdAt": "2026-05-07T00:00:00Z",
+  "status": "pursuing",
+  "qualityGates": [
+    {"name": "tests-pass", "cmd": "pytest -q", "required": true},
+    {"name": "imports-clean", "cmd": "python -c 'import app.main'", "required": true}
+  ],
+  "budget": {
+    "tokens": 500000,
+    "wallClockSeconds": 1800,
+    "maxCostUsd": 2.0
+  },
+  "intents": [
+    {
+      "id": "I001",
+      "title": "Project scaffold",
+      "status": "open",
+      "priority": 10,
+      "dependsOn": [],
+      "checks": [
+        {
+          "id": "C1",
+          "description": "pyproject.toml exists with fastapi + pytest dependencies",
+          "verifyCmd": "test -s pyproject.toml && grep -q fastapi pyproject.toml && grep -q pytest pyproject.toml",
+          "timeoutSeconds": 10,
+          "retries": 1
+        },
+        {
+          "id": "C2",
+          "description": "package layout is app/main.py + tests/test_main.py",
+          "verifyCmd": "test -f app/main.py && test -f tests/test_main.py",
+          "timeoutSeconds": 5,
+          "retries": 1
+        }
+      ],
+      "proofs": [],
+      "startedAt": null,
+      "completedAt": null,
+      "auditFailures": []
+    },
+    {
+      "id": "I002",
+      "title": "GET /hello endpoint returning {message: hello}",
+      "status": "open",
+      "priority": 20,
+      "dependsOn": ["I001"],
+      "checks": [
+        {
+          "id": "C1",
+          "description": "endpoint returns 200",
+          "verifyCmd": "python -c \"from fastapi.testclient import TestClient; from app.main import app; r = TestClient(app).get('/hello'); assert r.status_code == 200\"",
+          "timeoutSeconds": 30,
+          "retries": 2
+        },
+        {
+          "id": "C2",
+          "description": "endpoint returns the expected JSON shape",
+          "verifyCmd": "python -c \"from fastapi.testclient import TestClient; from app.main import app; r = TestClient(app).get('/hello'); assert r.json()['message'] == 'hello'\"",
+          "timeoutSeconds": 30,
+          "retries": 2
+        }
+      ],
+      "proofs": [],
+      "startedAt": null,
+      "completedAt": null,
+      "auditFailures": []
+    },
+    {
+      "id": "I003",
+      "title": "pytest suite covers the endpoint",
+      "status": "open",
+      "priority": 30,
+      "dependsOn": ["I002"],
+      "checks": [
+        {
+          "id": "C1",
+          "description": "at least one test in tests/test_main.py exercises GET /hello",
+          "verifyCmd": "grep -q '/hello' tests/test_main.py",
+          "timeoutSeconds": 5,
+          "retries": 1
+        },
+        {
+          "id": "C2",
+          "description": "pytest runs and all tests pass",
+          "verifyCmd": "pytest -q tests/test_main.py",
+          "timeoutSeconds": 60,
+          "retries": 2
+        }
+      ],
+      "proofs": [],
+      "startedAt": null,
+      "completedAt": null,
+      "auditFailures": []
+    }
+  ],
+  "globalState": {
+    "iteration": 0,
+    "consecutiveSameSignature": 0,
+    "consecutiveBlocked": 0,
+    "lastPayloadHash": null,
+    "lastCheckboxCount": [0, 0],
+    "lastZeroToolCallIter": null,
+    "runStartedAt": null,
+    "wrapUpFlag": false
+  }
+}
