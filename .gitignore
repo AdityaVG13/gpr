@@ -40,3 +40,6 @@ service-account*.json
 *.log
 *.tmp
 scratch/
+
+# Internal design notes — brain dumps for v0.2 work, not part of release
+docs/internal/
