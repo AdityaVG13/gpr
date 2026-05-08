@@ -1,6 +1,6 @@
 <div align="center">
 
-# gpr
+# GPR
 
 **Goal-driven PRD Ratchet** — an agent loop that only marks work done when real artifacts pass real checks.
 
