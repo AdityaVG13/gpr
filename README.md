@@ -67,6 +67,8 @@ There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up)
   <img src="docs/render.png" alt="gpr render — Plan.html" width="720">
 </p>
 
+> **The interactive PRD viewer is a work in progress.** What's shipped works; what could come next is sketched as standalone concept demos in [`docs/examples/`](docs/examples/index.html) — per-intent reading rings, Tufte sidenotes, scrubbable Tangle-style metrics, Matuschak stacked columns, diff overlay, inline-edit patch export. If a pattern there matches a need (or you've seen better), open an issue or send a PR — happy to merge thoughtful additions.
+
 ## How it works
 
 ### Concepts

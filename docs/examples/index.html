@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>gpr · interactive PRD viewer · concept demos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#fbfaf6; --paper:#fff; --ink:#1c1917; --ink-muted:#57534e; --ink-faint:#a8a29e; --hairline:#eae7e1; --hairline-strong:#d6d3d1; --accent:#1f3873; --accent-faint:#f5f7fb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 64px 24px 120px; background: var(--bg); color: var(--ink); font-family: 'EB Garamond', Georgia, serif; font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .meta { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--ink-faint); }
+  h1 { font-weight: 500; font-size: 38px; line-height: 1.15; letter-spacing: -0.012em; margin: 0 0 12px 0; }
+  .lede { font-size: 18px; color: var(--ink-muted); margin: 0 0 48px 0; }
+  hr { border: none; border-top: 1px solid var(--hairline); margin: 48px 0; }
+  .demo-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+  .demo {
+    display: grid; grid-template-columns: 60px 1fr auto; gap: 24px;
+    padding: 20px 24px;
+    background: var(--paper); border: 1px solid var(--hairline);
+    text-decoration: none; color: var(--ink);
+    transition: border-color 150ms ease, transform 150ms ease;
+  }
+  .demo:hover { border-color: var(--accent); transform: translateX(2px); }
+  .demo .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: var(--ink-faint); padding-top: 2px; }
+  .demo h3 { font-weight: 500; font-size: 19px; margin: 0 0 4px 0; }
+  .demo p { margin: 0; color: var(--ink-muted); font-size: 14.5px; line-height: 1.5; }
+  .demo .arrow { color: var(--accent); align-self: center; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .pill { display: inline-block; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; padding: 2px 8px; border: 1px solid var(--hairline-strong); border-radius: 999px; color: var(--ink-muted); margin-right: 6px; }
+  .pill-stable { color: var(--accent); border-color: var(--accent); }
+  .note { padding: 16px 20px; background: color-mix(in oklab, var(--accent) 6%, var(--paper)); border-left: 2px solid var(--accent); margin-top: 32px; font-size: 14.5px; line-height: 1.6; }
+  .note strong { color: var(--accent); }
+  a.gh { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="meta">gpr · interactive PRD · concept gallery</div>
+  <h1>Six patterns we want to add — see what they could look like</h1>
+  <p class="lede">The interactive PRD viewer is a work in progress. These six demos prototype patterns we considered but didn't ship in v0.1. Each opens standalone, runs offline, no server. If one feels right (or you can do better), open an issue or a PR.</p>
+
+  <hr>
+
+  <ul class="demo-list">
+    <li><a class="demo" href="rings.html">
+      <span class="num">01</span>
+      <div>
+        <h3>Per-intent reading-progress rings</h3>
+        <p>A small SVG circle in each intent header fills as the reader dwells past it. Document gets a "73% read" footer aggregating the rings.</p>
+      </div>
+      <span class="arrow">→</span>
+    </a></li>
+
+    <li><a class="demo" href="sidenotes.html">
+      <span class="num">02</span>
+      <div>
+        <h3>Tufte sidenotes</h3>
+        <p>Margin-anchored notes for verifyCmd rationale and decision context. Float right at desktop, collapse to inline disclosure on mobile.</p>
+      </div>
+      <span class="arrow">→</span>
+    </a></li>
+
+    <li><a class="demo" href="tangle.html">
+      <span class="num">03</span>
+      <div>
+        <h3>Tangle-style scrubbable metrics</h3>
+        <p>Drag a number in prose to scrub its value; every dependent figure on the page recomputes live. Bret Victor's pattern, applied to budget and intent counts.</p>
+      </div>
+      <span class="arrow">→</span>
+    </a></li>
+
+    <li><a class="demo" href="stacked.html">
+      <span class="num">04</span>
+      <div>
+        <h3>Matuschak stacked columns</h3>
+        <p>Cmd-click a section anchor to push a new vertical column beside the current one instead of navigating away. Build a horizontal stack of side-by-side reading panes.</p>
+      </div>
+      <span class="arrow">→</span>
+    </a></li>
+
+    <li><a class="demo" href="diff.html">
+      <span class="num">05</span>
+      <div>
+        <h3>Diff overlay against a prior revision</h3>
+        <p>Toggle "show changes since v0.3" — added paragraphs glow green, removed ones strike-through red. Same primitive Linear uses for project-doc revision compare.</p>
+      </div>
+      <span class="arrow">→</span>
+    </a></li>
+
+    <li><a class="demo" href="patch.html">
+      <span class="num">06</span>
+      <div>
+        <h3>Inline edit + patch export</h3>
+        <p>Click any field to edit it inline; the page tracks deltas. "Download patch" produces a unified diff against canonical Plan.json. Editing-as-suggestion in pure HTML.</p>
+      </div>
+      <span class="arrow">→</span>
+    </a></li>
+  </ul>
+
+  <div class="note">
+    <strong>Have ideas?</strong> The interactive PRD viewer is open WIP. If a pattern here matches a need (or you've seen better), file an issue at <a class="gh" href="https://github.com/AdityaVG13/GPR/issues">AdityaVG13/GPR/issues</a> or send a PR — happy to merge thoughtful additions.
+  </div>
+</div>
+</body>
+</html>

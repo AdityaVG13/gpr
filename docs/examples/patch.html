@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>inline edit · patch export · gpr concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_shared.css">
+<style>
+  [contenteditable] { outline: none; cursor: text; padding: 2px 4px; border-radius: 2px; transition: background 100ms ease, box-shadow 100ms ease; }
+  [contenteditable]:hover { background: var(--accent-faint); }
+  [contenteditable]:focus { background: var(--accent-faint); box-shadow: 0 0 0 1px var(--accent); }
+  [contenteditable].dirty { background: color-mix(in oklab, var(--warn) 10%, var(--paper)); border-left: 2px solid var(--warn); padding-left: 8px; }
+  .toolbar { position: sticky; top: 0; background: var(--bg); padding: 12px 0; border-bottom: 1px solid var(--hairline); display: flex; gap: 12px; align-items: center; z-index: 10; }
+  .toolbar button { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em; padding: 6px 12px; background: transparent; border: 1px solid var(--hairline-strong); color: var(--ink-muted); cursor: pointer; border-radius: 4px; }
+  .toolbar button:hover { color: var(--accent); border-color: var(--accent); }
+  .toolbar button[disabled] { opacity: 0.4; cursor: not-allowed; }
+  .toolbar .count { margin-left: auto; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: var(--ink-faint); }
+  pre.diff { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px; line-height: 1.55; background: var(--accent-faint); padding: 16px 20px; border: 1px solid var(--hairline); white-space: pre-wrap; }
+  pre.diff .add { color: var(--pass); display: block; }
+  pre.diff .del { color: var(--fail); display: block; }
+  pre.diff .ctx { color: var(--ink-muted); display: block; }
+  pre.diff .head { color: var(--accent); display: block; font-weight: 500; }
+  details summary { cursor: pointer; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--accent); padding: 8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">← back to gallery</a>
+  <div class="meta" style="margin-top:24px;">concept · 06</div>
+  <h1>Inline edit · patch export</h1>
+  <p class="lede">Click any field below to edit. The page tracks every change. When you're done, hit "Download patch" to grab a unified diff against the canonical Plan.json — open a PR or paste it into Slack. Editing-as-suggestion in pure HTML.</p>
+
+  <div class="tip"><strong>Mechanic</strong>Each editable field gets <code>contenteditable</code> + <code>data-original</code>. On every <code>input</code> event the field compares its text against original and toggles a <code>dirty</code> class. "Download patch" walks every dirty field, builds a unified diff, and triggers <code>URL.createObjectURL</code> download. Pure JS, no framework.</div>
+
+  <div class="toolbar">
+    <button id="reset-btn" disabled>reset all</button>
+    <button id="preview-btn" disabled>preview patch</button>
+    <button id="download-btn" disabled>download patch.diff</button>
+    <span class="count" id="count">0 fields edited</span>
+  </div>
+
+  <h2>Goal</h2>
+  <p contenteditable data-key="goal" data-original="Build a TODO REST API with auth that supports JWT issuance, refresh-token rotation, and per-user CRUD on the TODO resource.">Build a TODO REST API with auth that supports JWT issuance, refresh-token rotation, and per-user CRUD on the TODO resource.</p>
+
+  <h2>Intents</h2>
+
+  <div class="intent">
+    <span class="id">I001 · open</span>
+    <h3 contenteditable data-key="intents[0].title" data-original="Project scaffold and database schema">Project scaffold and database schema</h3>
+    <p contenteditable data-key="intents[0].description" data-original="Lay down pyproject.toml, alembic migrations, and a smoke test that proves wires connect.">Lay down pyproject.toml, alembic migrations, and a smoke test that proves wires connect.</p>
+  </div>
+
+  <div class="intent">
+    <span class="id">I002 · open</span>
+    <h3 contenteditable data-key="intents[1].title" data-original="JWT auth flow">JWT auth flow</h3>
+    <p contenteditable data-key="intents[1].description" data-original="Issue 15-minute access tokens. Refresh tokens rotate on every use. Reuse of an old refresh revokes the family.">Issue 15-minute access tokens. Refresh tokens rotate on every use. Reuse of an old refresh revokes the family.</p>
+  </div>
+
+  <details>
+    <summary>preview patch</summary>
+    <pre class="diff" id="diff-preview">no edits yet · click any field to start</pre>
+  </details>
+</div>
+
+<script>
+const fields = Array.from(document.querySelectorAll('[contenteditable]'));
+const reset = document.getElementById('reset-btn');
+const dl = document.getElementById('download-btn');
+const prev = document.getElementById('preview-btn');
+const count = document.getElementById('count');
+const diffEl = document.getElementById('diff-preview');
+
+function dirtyFields() {
+  return fields.filter(f => f.textContent.trim() !== f.dataset.original.trim());
+}
+
+function refresh() {
+  fields.forEach(f => f.classList.toggle('dirty', f.textContent.trim() !== f.dataset.original.trim()));
+  const n = dirtyFields().length;
+  count.textContent = `${n} field${n === 1 ? '' : 's'} edited`;
+  reset.disabled = n === 0;
+  dl.disabled = n === 0;
+  prev.disabled = n === 0;
+  if (n) diffEl.innerHTML = renderDiff();
+  else diffEl.textContent = 'no edits yet · click any field to start';
+}
+
+function renderDiff() {
+  const lines = [];
+  lines.push(`<span class="head">--- a/.gpr/Plan.json</span>`);
+  lines.push(`<span class="head">+++ b/.gpr/Plan.json</span>`);
+  dirtyFields().forEach(f => {
+    lines.push(`<span class="ctx">@@ ${f.dataset.key} @@</span>`);
+    lines.push(`<span class="del">- "${f.dataset.original.replace(/"/g, '\\"')}"</span>`);
+    lines.push(`<span class="add">+ "${f.textContent.trim().replace(/"/g, '\\"')}"</span>`);
+  });
+  return lines.join('\n');
+}
+
+function plainDiff() {
+  const lines = [];
+  lines.push(`--- a/.gpr/Plan.json`);
+  lines.push(`+++ b/.gpr/Plan.json`);
+  dirtyFields().forEach(f => {
+    lines.push(`@@ ${f.dataset.key} @@`);
+    lines.push(`- "${f.dataset.original.replace(/"/g, '\\"')}"`);
+    lines.push(`+ "${f.textContent.trim().replace(/"/g, '\\"')}"`);
+  });
+  return lines.join('\n') + '\n';
+}
+
+fields.forEach(f => f.addEventListener('input', refresh));
+
+reset.addEventListener('click', () => {
+  fields.forEach(f => { f.textContent = f.dataset.original; });
+  refresh();
+});
+
+dl.addEventListener('click', () => {
+  const blob = new Blob([plainDiff()], { type: 'text/x-diff' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'plan-edits.patch';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+prev.addEventListener('click', () => {
+  document.querySelector('details').open = true;
+  document.querySelector('details').scrollIntoView({ behavior: 'smooth' });
+});
+
+refresh();
+</script>
+</body>
+</html>

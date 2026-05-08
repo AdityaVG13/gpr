@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>diff overlay · gpr concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_shared.css">
+<style>
+  .toggle-bar { position: sticky; top: 0; background: var(--bg); padding: 12px 0; border-bottom: 1px solid var(--hairline); display: flex; gap: 8px; align-items: center; z-index: 10; }
+  .toggle-bar label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-muted); margin-right: 12px; }
+  .toggle-bar select { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em; padding: 5px 28px 5px 10px; background: transparent; border: 1px solid var(--hairline-strong); color: var(--ink); cursor: pointer; border-radius: 4px; appearance: none; }
+  .legend { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; color: var(--ink-faint); margin-left: auto; display: flex; gap: 16px; }
+  .legend .added { color: var(--pass); }
+  .legend .removed { color: var(--fail); }
+  .legend .changed { color: var(--warn); }
+  body[data-rev="latest"] .added,
+  body[data-rev="latest"] .changed { background: color-mix(in oklab, var(--pass) 12%, var(--paper)); border-left: 2px solid var(--pass); padding: 14px 16px; margin: 8px 0; }
+  body[data-rev="latest"] .removed { background: color-mix(in oklab, var(--fail) 8%, var(--paper)); border-left: 2px solid var(--fail); padding: 14px 16px; margin: 8px 0; opacity: 0.85; text-decoration: line-through; text-decoration-color: color-mix(in oklab, var(--fail) 60%, transparent); }
+  body[data-rev="latest"] .added::before { content: "+ added in this rev"; display: block; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--pass); margin-bottom: 6px; }
+  body[data-rev="latest"] .removed::before { content: "− removed in this rev"; display: block; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--fail); margin-bottom: 6px; text-decoration: none; }
+  body[data-rev="latest"] .changed::before { content: "~ revised in this rev"; display: block; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--warn); margin-bottom: 6px; }
+  body[data-rev="prev"] .added, body[data-rev="prev"] .removed, body[data-rev="prev"] .changed { padding: 0; margin: 0; background: transparent; border: none; opacity: 1; text-decoration: none; }
+  body[data-rev="prev"] .added::before, body[data-rev="prev"] .removed::before, body[data-rev="prev"] .changed::before { content: ""; display: none; }
+  body[data-rev="prev"] .added { display: none; }
+  body[data-rev="latest"] .removed-only { display: none; }
+</style>
+</head>
+<body data-rev="latest">
+<div class="wrap">
+  <a class="back" href="index.html">← back to gallery</a>
+  <div class="meta" style="margin-top:24px;">concept · 05</div>
+  <h1>Diff overlay against a prior revision</h1>
+  <p class="lede">Toggle the revision selector. Added paragraphs glow green; removed ones strike through red; revised ones get an amber rule. Same primitive Linear uses for project-doc revision compare. Author marks paragraphs at write time with a class; the overlay does the rest.</p>
+
+  <div class="toggle-bar">
+    <label for="rev-sel">revision</label>
+    <select id="rev-sel">
+      <option value="latest">latest (v0.4) — show diff vs v0.3</option>
+      <option value="prev">prev (v0.3) — clean view, no diff</option>
+    </select>
+    <span class="legend"><span class="added">+ added</span><span class="removed">− removed</span><span class="changed">~ revised</span></span>
+  </div>
+
+  <h2>I002 — JWT auth flow</h2>
+  <p>The auth flow issues a short-lived access token plus a long-lived refresh token. The access token carries a 15-minute expiry; the refresh token lasts seven days. Verification is constant-time on the signature and runs at every protected endpoint.</p>
+
+  <p class="changed">Refresh tokens rotate on every use. The new token replaces the old one in the user's token-family ledger. Reuse of an old token is treated as a stolen-credential signal and revokes the entire family. <em>Revised in v0.4: rotation was added; v0.3 used long-lived static refresh tokens.</em></p>
+
+  <p class="added">Layer-2 audit invokes a second, cheaper model on every done-flip and confirms the verifyCmd was load-bearing rather than a passing tautology. Without this, a clever build agent can author <code>verifyCmd: true</code> and pass instantly.</p>
+
+  <p class="removed">~~Refresh tokens are stored as a 32-byte opaque blob, never rotated, valid for 30 days, and held in a single Redis key per user. They are issued once at login and reused until expiry.~~</p>
+
+  <h2>I004 — Rate limiting</h2>
+  <p>Login is capped at ten attempts per IP per minute, with a fifteen-minute lockout after the cap is hit. The implementation uses a sliding-window counter in Redis, with an in-memory fallback for local dev so contributors don't need Redis to run the test suite.</p>
+
+  <p class="added">In addition to per-IP, we now cap per-account at five failed attempts per ten minutes regardless of source IP. This catches the slow-and-distributed credential-stuffing pattern that per-IP alone misses.</p>
+</div>
+
+<script>
+const sel = document.getElementById('rev-sel');
+sel.addEventListener('change', () => {
+  document.body.dataset.rev = sel.value;
+});
+</script>
+</body>
+</html>

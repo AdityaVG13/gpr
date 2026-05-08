@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>per-intent reading rings · gpr concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_shared.css">
+<style>
+  .intent { display: grid; grid-template-columns: 56px 1fr; gap: 18px; align-items: start; }
+  .ring { width: 36px; height: 36px; }
+  .ring circle { fill: none; stroke-width: 3; }
+  .ring .bg { stroke: var(--hairline); }
+  .ring .fg { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 200ms linear; }
+  .footer-meter { padding: 24px; background: var(--paper); border: 1px solid var(--hairline); margin-top: 24px; display: grid; grid-template-columns: 80px 1fr; gap: 24px; align-items: center; }
+  .footer-meter h3 { margin: 0 0 6px 0; font-weight: 500; font-size: 22px; }
+  .footer-meter p { margin: 0; color: var(--ink-muted); font-size: 14.5px; }
+  .footer-meter .big-ring { width: 64px; height: 64px; }
+  .footer-meter .big-ring .fg { stroke-width: 4; }
+  .pct { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; text-anchor: middle; fill: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">← back to gallery</a>
+  <div class="meta" style="margin-top:24px;">concept · 01</div>
+  <h1>Per-intent reading rings</h1>
+  <p class="lede">As you scroll past each intent, its ring fills. The footer aggregates every intent's read-fraction into a single page-level "73% read" gauge. Reader sees attention coverage at a glance; author sees which sections everyone skips.</p>
+
+  <div class="tip"><strong>Mechanic</strong>An IntersectionObserver per intent samples viewport-time as you scroll. <code>dwellMs / threshold</code> drives <code>stroke-dashoffset</code> on the ring. Pure CSS animation, ~40 LOC of JS.</div>
+
+  <h2>Live demo · scroll past each intent</h2>
+
+  <div class="intent">
+    <svg class="ring" viewBox="0 0 36 36" data-ring="I001"><circle class="bg" cx="18" cy="18" r="15"/><circle class="fg" cx="18" cy="18" r="15" stroke-dasharray="94.2" stroke-dashoffset="94.2" transform="rotate(-90 18 18)"/></svg>
+    <div><span class="id">I001 · done</span><h3>Project scaffold and database schema</h3><p>The first intent. Lays down pyproject.toml, the migration baseline, and the smoke test that proves wires connect. Without this, every later intent is speculation. Read this twice if you're new — every other intent assumes the layout it establishes.</p></div>
+  </div>
+
+  <div class="intent">
+    <svg class="ring" viewBox="0 0 36 36" data-ring="I002"><circle class="bg" cx="18" cy="18" r="15"/><circle class="fg" cx="18" cy="18" r="15" stroke-dasharray="94.2" stroke-dashoffset="94.2" transform="rotate(-90 18 18)"/></svg>
+    <div><span class="id">I002 · in progress</span><h3>JWT auth flow with refresh-token rotation</h3><p>Authentication splits into three concerns: issuance (short-lived access token), refresh (rotation on each use, with reuse-detection that revokes the entire family), and verification (constant-time signature check at every protected endpoint). Each one is a sub-intent in v0.2; for now we've landed issuance.</p></div>
+  </div>
+
+  <div class="intent">
+    <svg class="ring" viewBox="0 0 36 36" data-ring="I003"><circle class="bg" cx="18" cy="18" r="15"/><circle class="fg" cx="18" cy="18" r="15" stroke-dasharray="94.2" stroke-dashoffset="94.2" transform="rotate(-90 18 18)"/></svg>
+    <div><span class="id">I003 · open</span><h3>CRUD endpoints for the TODO resource</h3><p>Five routes. GET / for list, POST / for create, GET /:id, PATCH /:id, DELETE /:id. Validation via Pydantic; ownership scoped by the JWT subject; pagination via cursor not offset; soft-delete with a deleted_at column rather than physical row removal.</p></div>
+  </div>
+
+  <div class="intent">
+    <svg class="ring" viewBox="0 0 36 36" data-ring="I004"><circle class="bg" cx="18" cy="18" r="15"/><circle class="fg" cx="18" cy="18" r="15" stroke-dasharray="94.2" stroke-dashoffset="94.2" transform="rotate(-90 18 18)"/></svg>
+    <div><span class="id">I004 · open</span><h3>Rate limiting on the auth endpoints</h3><p>The login route is the front door for every credential-stuffing botnet on the open web. We cap to 10 attempts per IP per minute, with a 15-minute lockout after the cap is hit. Implementation lives in Redis with a sliding window; a fallback to in-memory for local dev.</p></div>
+  </div>
+
+  <div class="intent">
+    <svg class="ring" viewBox="0 0 36 36" data-ring="I005"><circle class="bg" cx="18" cy="18" r="15"/><circle class="fg" cx="18" cy="18" r="15" stroke-dasharray="94.2" stroke-dashoffset="94.2" transform="rotate(-90 18 18)"/></svg>
+    <div><span class="id">I005 · open</span><h3>Observability: structured logs and one health route</h3><p>Every request produces a single JSON log line keyed by request_id. Health check at /healthz returns 200 with a tiny payload describing build sha, db reachable, redis reachable. No Datadog yet — that's an explicit anti-goal for v1; we ship plain stdout JSON and let the operator pipe it.</p></div>
+  </div>
+
+  <div class="footer-meter">
+    <svg class="big-ring" viewBox="0 0 36 36" id="agg-ring">
+      <circle class="bg" cx="18" cy="18" r="15"/>
+      <circle class="fg" cx="18" cy="18" r="15" stroke-dasharray="94.2" stroke-dashoffset="94.2" transform="rotate(-90 18 18)"/>
+      <text class="pct" x="18" y="22" id="pct-label">0%</text>
+    </svg>
+    <div>
+      <h3>Page read fraction</h3>
+      <p>Aggregates every intent's ring. Shareable as a URL parameter so authors can ask "did you actually read it?" with receipts.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const dwell = new Map();
+const C = 2 * Math.PI * 15; // circumference for r=15
+function setRing(el, frac) {
+  const f = Math.max(0, Math.min(1, frac));
+  el.setAttribute('stroke-dashoffset', (C * (1 - f)).toFixed(2));
+}
+const items = document.querySelectorAll('[data-ring]');
+items.forEach(el => dwell.set(el.dataset.ring, 0));
+
+const seen = new WeakMap();
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    const id = e.target.querySelector('[data-ring]')?.dataset.ring;
+    if (!id) return;
+    seen.set(e.target, e.isIntersecting ? performance.now() : null);
+  });
+}, { threshold: 0.4 });
+
+document.querySelectorAll('.intent').forEach(s => obs.observe(s));
+
+function tick() {
+  const now = performance.now();
+  let total = 0, count = 0;
+  document.querySelectorAll('.intent').forEach(s => {
+    const start = seen.get(s);
+    const id = s.querySelector('[data-ring]').dataset.ring;
+    if (start) {
+      const elapsed = now - start;
+      // Cap at 2.5s of dwell = full ring.
+      const f = Math.min(1, dwell.get(id) + elapsed / 2500);
+      dwell.set(id, f);
+      seen.set(s, now);
+    }
+    const f = dwell.get(id) || 0;
+    setRing(s.querySelector('[data-ring] .fg'), f);
+    total += f; count++;
+  });
+  const agg = count ? total / count : 0;
+  setRing(document.querySelector('#agg-ring .fg'), agg);
+  document.getElementById('pct-label').textContent = Math.round(agg * 100) + '%';
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>scrubbable metrics · gpr concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_shared.css">
+<style>
+  .scrub {
+    color: var(--accent);
+    font-weight: 500;
+    border-bottom: 1px dashed var(--accent);
+    cursor: ew-resize;
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    padding: 0 1px;
+  }
+  .scrub:hover { background: var(--accent-faint); }
+  .scrub.active { background: var(--accent); color: var(--paper); border-bottom-color: var(--paper); }
+  .panel { background: var(--paper); border: 1px solid var(--hairline); padding: 18px 22px; margin: 24px 0; }
+  .panel-row { display: grid; grid-template-columns: 220px 1fr; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--hairline); align-items: baseline; }
+  .panel-row:last-child { border-bottom: none; }
+  .panel-row .label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-faint); }
+  .panel-row .val { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 16px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .bar { height: 6px; background: var(--hairline); margin-top: 6px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); transition: width 80ms ease; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">← back to gallery</a>
+  <div class="meta" style="margin-top:24px;">concept · 03</div>
+  <h1>Tangle-style scrubbable metrics</h1>
+  <p class="lede">Drag any underlined number in the prose to scrub its value. Every dependent figure on the page recomputes live. Bret Victor's Tangle pattern, here applied to budget and intent count for a what-if-we-doubled-this exploration.</p>
+
+  <div class="tip"><strong>Mechanic</strong>Each scrubbable span declares <code>data-scrub="key"</code> with min/max/step. Pointer-drag changes the value; a small reactive engine recomputes derived values declared on other spans (<code>data-formula="key * rate"</code>). ~80 LOC vanilla.</div>
+
+  <h2>Try dragging the underlined numbers</h2>
+
+  <p>The current Plan declares <span class="scrub" data-scrub="intents" data-min="1" data-max="20" data-step="1" data-init="5">5</span> intents averaging <span class="scrub" data-scrub="iters_per" data-min="1" data-max="20" data-step="1" data-init="6">6</span> iterations each, at <span class="scrub" data-scrub="kt_per" data-min="10" data-max="200" data-step="5" data-init="80">80</span>k tokens per iteration. The build agent runs at <span class="scrub" data-scrub="rate" data-min="1" data-max="50" data-step="0.5" data-init="15">$15</span> per million tokens.</p>
+
+  <p>That works out to <span data-derive="iters" class="scrub" style="cursor:default;border-bottom-style:solid">30</span> iterations, <span data-derive="tokens" class="scrub" style="cursor:default;border-bottom-style:solid">2,400,000</span> tokens, and roughly <span data-derive="cost" class="scrub" style="cursor:default;border-bottom-style:solid">$36.00</span> in build cost — before any Layer-2 audits run.</p>
+
+  <div class="panel">
+    <div class="panel-row">
+      <div class="label">total iterations</div>
+      <div><span class="val" data-derive="iters">30</span></div>
+    </div>
+    <div class="panel-row">
+      <div class="label">total tokens</div>
+      <div><span class="val" data-derive="tokens">2,400,000</span><div class="bar"><div data-bar="tokens" style="width:24%"></div></div></div>
+    </div>
+    <div class="panel-row">
+      <div class="label">estimated cost</div>
+      <div><span class="val" data-derive="cost">$36.00</span><div class="bar"><div data-bar="cost" style="width:36%"></div></div></div>
+    </div>
+    <div class="panel-row">
+      <div class="label">wall-clock estimate</div>
+      <div><span class="val" data-derive="wall">2h 30m</span></div>
+    </div>
+  </div>
+
+  <p>Pull the intent count up to twelve and the cost roughly doubles; pull token-per-iter down to thirty and most of that pressure releases. Useful for pre-flight Plan budget tuning without rerunning the loop.</p>
+</div>
+
+<script>
+const state = {};
+const fmt = {
+  iters: v => `${v}`,
+  tokens: v => v.toLocaleString(),
+  cost: v => `$${v.toFixed(2)}`,
+  wall: v => {
+    const mins = Math.round(v);
+    const h = Math.floor(mins / 60), m = mins % 60;
+    return h ? `${h}h ${m}m` : `${m}m`;
+  },
+};
+function compute() {
+  const intents = state.intents, iters_per = state.iters_per, kt = state.kt_per, rate = state.rate;
+  const iters = intents * iters_per;
+  const tokens = iters * kt * 1000;
+  const cost = tokens / 1_000_000 * rate;
+  const wall = iters * 5; // 5 minutes per iter assumption
+  return { iters, tokens, cost, wall };
+}
+function refresh() {
+  const d = compute();
+  document.querySelectorAll('[data-derive]').forEach(el => {
+    const k = el.dataset.derive;
+    el.textContent = fmt[k] ? fmt[k](d[k]) : d[k];
+  });
+  const tokenFrac = Math.min(1, d.tokens / 5_000_000);
+  const costFrac = Math.min(1, d.cost / 100);
+  document.querySelectorAll('[data-bar="tokens"]').forEach(b => b.style.width = (tokenFrac * 100) + '%');
+  document.querySelectorAll('[data-bar="cost"]').forEach(b => b.style.width = (costFrac * 100) + '%');
+}
+document.querySelectorAll('[data-scrub]').forEach(el => {
+  if (!el.dataset.scrub) return;
+  const k = el.dataset.scrub;
+  const init = parseFloat(el.dataset.init);
+  state[k] = init;
+  let drag = false, sx = 0, sv = 0;
+  el.addEventListener('pointerdown', e => {
+    drag = true; sx = e.clientX; sv = state[k];
+    el.classList.add('active');
+    el.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  el.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const min = parseFloat(el.dataset.min), max = parseFloat(el.dataset.max), step = parseFloat(el.dataset.step);
+    const dx = e.clientX - sx;
+    let v = sv + dx * step * 0.4;
+    v = Math.max(min, Math.min(max, v));
+    v = Math.round(v / step) * step;
+    state[k] = v;
+    el.textContent = (k === 'rate' ? '$' : '') + (Number.isInteger(step) ? v : v.toFixed(1));
+    refresh();
+  });
+  const end = e => { drag = false; el.classList.remove('active'); };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+});
+refresh();
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+:root { --bg:#fbfaf6; --paper:#fff; --ink:#1c1917; --ink-muted:#57534e; --ink-faint:#a8a29e; --hairline:#eae7e1; --hairline-strong:#d6d3d1; --accent:#1f3873; --accent-soft:#6582bd; --accent-faint:#f5f7fb; --pass:#16614b; --fail:#b91c1c; --warn:#92400e; }
+* { box-sizing: border-box; }
+body { margin:0; padding:48px 24px 120px; background:var(--bg); color:var(--ink); font-family:'EB Garamond', Georgia, serif; font-size:17px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+.wrap { max-width:720px; margin:0 auto; }
+.meta { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.16em; color:var(--ink-faint); }
+.back { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.14em; color:var(--accent); text-decoration:none; }
+h1 { font-weight:500; font-size:34px; line-height:1.18; letter-spacing:-0.012em; margin:8px 0 8px 0; }
+h2 { font-weight:500; font-size:22px; margin:48px 0 12px 0; letter-spacing:-0.006em; }
+.lede { font-size:17px; color:var(--ink-muted); margin:0 0 32px 0; }
+.tip { padding:14px 18px; background:var(--accent-faint); border-left:2px solid var(--accent); margin:24px 0; font-size:14.5px; line-height:1.55; }
+.tip strong { color:var(--accent); font-family:'JetBrains Mono', ui-monospace, monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.14em; display:inline-block; margin-right:8px; }
+hr { border:none; border-top:1px solid var(--hairline); margin:40px 0; }
+code { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:13px; background:var(--accent-faint); padding:1px 6px; border:1px solid var(--hairline); border-radius:2px; }
+.intent { background:var(--paper); border:1px solid var(--hairline); padding:18px 22px; margin-bottom:12px; }
+.intent h3 { font-weight:500; font-size:18px; margin:0 0 6px 0; }
+.intent .id { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.14em; color:var(--ink-faint); margin-right:10px; }
+.intent p { color:var(--ink-muted); font-size:14.5px; margin:0; }

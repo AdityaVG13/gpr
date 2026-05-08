@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>stacked columns · gpr concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_shared.css">
+<style>
+  body { padding: 0; overflow-x: auto; }
+  .stack-wrap { padding: 48px 24px 120px; min-width: max-content; }
+  .header { max-width: 720px; margin-bottom: 32px; }
+  .stack { display: flex; gap: 24px; align-items: flex-start; }
+  .col {
+    flex: 0 0 540px;
+    background: var(--paper);
+    border: 1px solid var(--hairline);
+    padding: 28px 32px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    position: relative;
+    scroll-snap-align: start;
+  }
+  .col-close { position: absolute; top: 12px; right: 12px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: var(--ink-faint); cursor: pointer; padding: 4px 8px; border: 1px solid var(--hairline-strong); background: transparent; }
+  .col-close:hover { color: var(--accent); border-color: var(--accent); }
+  .col h2 { margin-top: 0; font-size: 22px; }
+  a.push {
+    color: var(--accent); text-decoration: none;
+    border-bottom: 1px dashed var(--accent);
+  }
+  a.push:hover { background: var(--accent-faint); }
+  .col-num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-faint); margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="stack-wrap">
+  <div class="header">
+    <a class="back" href="index.html">← back to gallery</a>
+    <div class="meta" style="margin-top:24px;">concept · 04</div>
+    <h1>Matuschak-style stacked columns</h1>
+    <p class="lede">Cmd-click any link below to push a new column beside the current one instead of navigating away. Build a horizontal stack of side-by-side reading panes; scroll horizontally to walk back through them. Use it to compare two intents, two revisions, or two acceptance criteria without losing your place.</p>
+    <div class="tip"><strong>Mechanic</strong>Click handler intercepts <code>cmd-click</code> (or shift-click); resolves the linked section's HTML, clones it into a new column appended to the stack flex container, then scrolls horizontally to it. Each pushed column gets a close button.</div>
+  </div>
+
+  <div class="stack" id="stack">
+    <div class="col" data-col="root">
+      <div class="col-num">root · I001</div>
+      <h2>Project scaffold and database schema</h2>
+      <p>The first intent. Lays down pyproject.toml, the migration baseline, and the smoke test that proves wires connect. The relevant decisions live elsewhere — see <a class="push" href="#col-jwt" data-target="jwt">why JWT, not sessions</a> and <a class="push" href="#col-pg" data-target="pg">why postgres, not sqlite</a>. Cmd-click each.</p>
+      <p>The audit re-runs <code>pytest -k test_scaffold</code> on every regression sweep so a later intent that quietly changes the migration baseline can't sneak past.</p>
+      <p>Once <a class="push" href="#col-auth" data-target="auth">authentication (I002)</a> lands, this intent's checks expand to also verify that the auth tables exist with the expected indexes.</p>
+    </div>
+  </div>
+</div>
+
+<template id="col-jwt">
+  <div class="col-num">push · decision</div>
+  <h2>Why JWT, not sessions</h2>
+  <p>Sessions need a server-side store. Adding Redis to the v1 architecture meant adding an operational dependency for the smallest deployments. JWTs let us hand off all session state to the client and keep the server stateless. The cost: harder revocation. The mitigation: 15-minute access tokens and a refresh-token rotation chain.</p>
+  <p>For comparison, here's <a class="push" href="#col-rev" data-target="rev">the revocation strategy</a>.</p>
+</template>
+
+<template id="col-pg">
+  <div class="col-num">push · decision</div>
+  <h2>Why postgres, not sqlite</h2>
+  <p>SQLite was tempting for v0. We use postgres because (1) we want concurrent writes from the test suite without WAL-mode tuning, (2) full-text search lives behind <code>tsvector</code> not <code>FTS5</code>, and (3) the migration tooling assumes postgres' transactional DDL.</p>
+</template>
+
+<template id="col-auth">
+  <div class="col-num">push · I002</div>
+  <h2>I002 — JWT auth flow with refresh-token rotation</h2>
+  <p>Three sub-concerns: issuance, refresh, verification. Sub-tasks are listed in the audit details. Depends on I001's user table.</p>
+</template>
+
+<template id="col-rev">
+  <div class="col-num">push · sub-decision</div>
+  <h2>Token revocation chain</h2>
+  <p>Each refresh token carries a family id. When a token is rotated, the old token's hash is recorded with state=consumed. Reuse of a consumed token marks the entire family revoked and forces re-auth across every device. Pattern: RFC 6819 §5.2.2.3.</p>
+</template>
+
+<script>
+const stack = document.getElementById('stack');
+const open = new Set(['root']);
+
+function pushCol(targetId) {
+  if (open.has(targetId)) {
+    const el = stack.querySelector(`[data-col="${targetId}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+    return;
+  }
+  const tpl = document.getElementById('col-' + targetId);
+  if (!tpl) return;
+  const col = document.createElement('div');
+  col.className = 'col';
+  col.dataset.col = targetId;
+  col.innerHTML = '<button class="col-close" aria-label="close">close</button>' + tpl.innerHTML;
+  stack.appendChild(col);
+  open.add(targetId);
+  col.querySelector('.col-close').addEventListener('click', () => {
+    col.remove();
+    open.delete(targetId);
+  });
+  setTimeout(() => col.scrollIntoView({ behavior: 'smooth', inline: 'center' }), 50);
+}
+
+stack.addEventListener('click', e => {
+  const a = e.target.closest('a.push[data-target]');
+  if (!a) return;
+  // Cmd / ctrl click pushes; plain click also pushes here (in real PRD, plain click would just navigate).
+  e.preventDefault();
+  pushCol(a.dataset.target);
+});
+
+// also bind on dynamically inserted columns
+new MutationObserver(() => {}).observe(stack, { childList: true });
+</script>
+</body>
+</html>
