@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.3 — 2026-05-08
+
+Architecture pass — five deepening refactors per Matt Pocock's `improve-codebase-architecture` skill applied to the v0.1.2 surface.
+
+- New `gpr get <jsonpath>` subcommand walks a dotted path with `[N]` array indexing through Plan.json or `--stdin`. Replaces 21 inline `python3 -c "import sys,json; print(json.load(sys.stdin)['x'])"` boilerplate calls in bash with direct `jq -r '.path'` (jq is already a doctor requirement). One typed accessor seam; bash callers stay thin.
+- `lib/agents.sh` collapses five 90%-identical `agent_<name>` functions into one generic dispatcher backed by a single `_agent_argv` case statement. Adding a new agent that fits the "prompt as last positional" contract is a single case branch. Bash 3.2 compatible.
+- `lib/loop.sh` `loop_iteration` decomposed into twelve named stages (`iter_disk_check`, `iter_steer_log`, `iter_pick_intent`, `iter_render_prompt`, `iter_invoke_agent`, `iter_record_budget`, `iter_ingest_signal`, `iter_layer2_audit`, `iter_signature`, `iter_classify_signal`, `iter_check_stalemate`, `iter_check_budget_hardstop`). Each has a contract documented at the top of the file: which iter-dir files it reads/writes, which globals it sets, what return codes mean. Stages are sourceable + invocable from a bash repl for unit-style testing.
+- New `lib/state/channels.py` registers all six prompt-output protocols (signal, audit_verdict, reverse_audit, confidence_audit, commit, pr) as a single `Channel` dataclass each. `cli.py` ingest handlers now dispatch through `channels.parse(name, text)`. Adding a seventh channel becomes one CHANNELS entry, not a new parser file plus a new argparse handler.
+- `lib/commit.sh` `cmd_commit_intent`, `cmd_pr_description`, `cmd_confidence_audit` collapse into thin callers around a new `_run_prompt_channel` helper that owns the render → agent_run → ingest pipeline once.
+- Notify guard: `GPR_AGENT=echo` runs are dry-runs and never trigger desktop notifications. `GPR_NO_NOTIFY=1` for operators who never want them. (Apologies for the stale stalemate notification.)
+- Shellcheck CI now passes warning-level. Unused `max_cost` wired through `GPR_BUDGET_MAX_COST_USD`; nameref usage on `_agent_run_generic` annotated; unused steer_text removed; SC2155 declare-and-assign-separately fixed; SC2218 source-before-call fixed.
+- 76 tests still green; no behavior changes — pure deepening.
+
+The sixth review candidate (audit pipeline hoist) is documented as a brain-dump in the gitignored `docs/internal/audit-pipeline.md` for v0.2 work alongside the MCP server.
+
 ## v0.1.2 — 2026-05-08
 
 - Interactive PRD viewer rebuilt around Alpine.js with a three-column layout (sticky TOC rail + paper card + marginalia). New: command palette (`⌘K`), keyboard navigation (`J`/`K`/`/`/`?`/`S`/`D`), per-intent reading-progress rings, hash-on-hover anchors with copy-link toast, scroll-triggered fade-up, click-to-zoom Mermaid graph via `svg-pan-zoom`, story mode that strips chrome to a single 720px column, four selectable styles (editorial / terminal / notebook / brutalist), four themes (paper / sepia / dark / arctic), three font sizes, opt-in inline-edit mode that downloads a unified-diff patch, diff overlay against the latest snapshot, six concept demos under `docs/examples/`.
