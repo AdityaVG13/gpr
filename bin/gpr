@@ -15,7 +15,7 @@ export PYTHONPATH="$GPR_HOME${PYTHONPATH:+:$PYTHONPATH}"
 # shellcheck source=lib/term.sh
 source "$GPR_LIB/term.sh"
 
-VERSION="0.1.0"
+VERSION="0.1.1"
 
 usage() {
   cat <<USAGE
