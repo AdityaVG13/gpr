@@ -1,11 +1,11 @@
 <div align="center">
 
-# GPR
+# gpr
 
-**Goal-driven PRD Ratchet** — an agent loop that only marks work done when real artifacts pass real checks.
+A CLI that drives a coding agent through an audit-verified Plan.
 
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-67_passing-emerald?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/tests-76_passing-emerald?style=flat-square)](tests/)
 [![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 
@@ -13,37 +13,69 @@
 
 </div>
 
+What test-driven development is to code, gpr is to LLM coding agents: every claim of completion has to pass a real check before the loop accepts it.
+
 ---
 
-## Install
+## Quickstart
 
 ```bash
 git clone https://github.com/AdityaVG13/GPR ~/.local/share/gpr
 ln -sf ~/.local/share/gpr/bin/gpr ~/.local/bin/gpr
-~/.local/share/gpr/install/install.sh   # registers the /gpr Claude Code skill
-gpr doctor
-```
-
-## Use
-
-```bash
-cd my-project
+~/.local/share/gpr/install/install.sh             # registers /gpr Claude Code skill
 gpr init --objective "Build a TODO REST API with auth"
-$EDITOR .gpr/Plan.json     # add intents and checks, or run /gpr-grill in a Claude session
-gpr run --agent claude --max-cost-usd 5 --deep-audit
+gpr run --agent claude --max-cost-usd 5
 ```
 
-Or, from inside any Claude Code TUI session:
+Or, if you're already in a Claude Code TUI session inside a project:
 
 ```
-/gpr Build a TODO REST API with auth     # bootstraps via gpr-grill, runs first iteration
-/gpr-status                              # progress + budget burn
-/gpr-steer Switch from sqlite to postgres
+/gpr Build a TODO REST API with auth
 ```
 
-## Why
+That bootstraps the Plan via an interactive interview (`gpr-grill`), runs the loop one iteration at a time, and yields back to you between rounds. Type `/gpr` again to advance, `/gpr-steer ...` to redirect.
 
-The naive ralph loop (`while true: claude -p prompt.md`) has five well-known failure modes. gpr fixes each one structurally, not by hoping the model behaves.
+[back to top](#gpr)
+
+---
+
+## What you write
+
+Every gpr run starts from a `Plan.json` — a real spec the loop reads on every iteration. Here's a real one (the example shipped under `examples/hello-fastapi/`):
+
+```json
+{
+  "goal": "Build a FastAPI hello-world with a passing pytest suite.",
+  "qualityGates": [
+    {"name": "tests-pass", "cmd": "pytest -q", "required": true}
+  ],
+  "budget": {"tokens": 500000, "wallClockSeconds": 1800, "maxCostUsd": 2.0},
+  "intents": [
+    {
+      "id": "I001",
+      "title": "GET /hello returning {message: hello}",
+      "dependsOn": [],
+      "checks": [
+        {
+          "id": "C1",
+          "description": "endpoint returns the expected JSON shape",
+          "verifyCmd": "python -c \"from fastapi.testclient import TestClient; from app.main import app; r = TestClient(app).get('/hello'); assert r.json()['message'] == 'hello'\""
+        }
+      ]
+    }
+  ]
+}
+```
+
+The agent can't mark `I001` done by saying so. The loop runs the `verifyCmd`. If it returns 0, the intent flips done. If it returns non-zero, the intent reverts to open and the failure goes into the next iteration's prompt.
+
+[back to top](#gpr)
+
+---
+
+## Why this exists
+
+The naive ralph loop (`while true: claude -p prompt.md`) has five well-known failure modes. gpr fixes each one structurally.
 
 | Failure mode | What goes wrong | gpr's fix |
 |---|---|---|
@@ -55,91 +87,96 @@ The naive ralph loop (`while true: claude -p prompt.md`) has five well-known fai
 
 There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up), a spec-drift sweep that re-runs old verifyCmds against the current state, and a `RESCOPE` signal for when the agent decides the plan itself is wrong.
 
-## Status at a glance
+[back to top](#gpr)
 
-<p align="center">
-  <img src="docs/status.png" alt="gpr status output" width="640">
-</p>
+---
 
-`gpr render` produces a self-contained interactive HTML dashboard. Sticky table-of-contents with live completion glyphs, URL-hash deep linking, filter chips with localStorage persistence, keyboard navigation (`j`/`k` to walk intents, `/` to filter, `?` for shortcuts), one-click copy on every `verifyCmd`, panzoom on the intent DAG. Editorial serif body on a paper card, mono metadata in small caps. Single file — Tailwind and Mermaid via CDN, vanilla JS, no build step.
+## Commands
 
-<p align="center">
-  <img src="docs/render.png" alt="gpr render — Plan.html" width="720">
-</p>
-
-> **The interactive PRD viewer is a work in progress.** What's shipped works; what could come next is sketched as standalone concept demos in [`docs/examples/`](docs/examples/index.html) — per-intent reading rings, Tufte sidenotes, scrubbable Tangle-style metrics, Matuschak stacked columns, diff overlay, inline-edit patch export. If a pattern there matches a need (or you've seen better), open an issue or send a PR — happy to merge thoughtful additions.
-
-## How it works
-
-### Concepts
-
-| Term | Meaning |
+| Command | What it does |
 |---|---|
-| **Goal** | One sentence describing what success looks like. |
-| **Intent** | A discrete unit of work toward the goal. Statuses: `open`, `in_progress`, `done`, `paused`. Intents declare `dependsOn` to form a DAG. |
-| **Check** | An acceptance criterion attached to an intent, with a `verifyCmd` gpr runs to confirm it actually holds. |
-| **Proof** | Recorded evidence that a check passed: command exit, file fingerprint, screenshot, manual sign-off. |
-| **Signal** | Structured trailer block emitted by the agent each iteration. Tells gpr what happened. |
-| **Spine.md** | Externalised memory; the agent rewrites it as decisions crystallise. |
-| **Pinned.md** | Read-only invariants; the agent is told never to overwrite this file. |
-| **Steer.md** | Human-editable interrupt; the agent reads it first every iteration. |
+| `gpr init` | Scaffold `.gpr/Plan.json`, `Pinned.md`, `Spine.md` |
+| `gpr run` | Drive the loop until done / blocked / budget |
+| `gpr status` | Show plan progress, next intent, budget burn |
+| `gpr render` | Write a self-contained interactive HTML view of the Plan |
+| `gpr steer` | Write a human interrupt to `Steer.md` |
+| `gpr audit` | Re-run verifyCmds without looping |
+| `gpr lint` | Warn about weak verifyCmds, dependency cycles, oversize fields |
+| `gpr doctor` | Check Python, git, jq, and installed agent CLIs |
+| `gpr config` | List / get / set viewer + run defaults |
+| `gpr trace` | Tail recent events |
+| `gpr commit-intent <ID>` | Generate a conventional-commits message for the iteration's diff |
+| `gpr pr-description` | Synthesise the whole run into a PR body |
+| `gpr confidence-audit` | Scrutinise the Plan for loopholes; loop until confident |
 
-### One iteration
+<p align="center">
+  <img src="docs/status.png" alt="gpr status" width="640">
+</p>
 
+[back to top](#gpr)
+
+---
+
+## The interactive PRD viewer
+
+`gpr render` writes a single self-contained HTML file. No build step, no server, opens via `file://`.
+
+<p align="center">
+  <img src="docs/render.png" alt="gpr render" width="720">
+</p>
+
+What's in there:
+
+- Sticky table of contents with live completion glyphs and scroll-progress fill
+- URL-hash deep linking (`#intent-I003`)
+- Filter chips and free-text search with localStorage persistence
+- Keyboard navigation (`J`/`K` for intents, `/` to filter, `?` for shortcuts, `S` for story mode, `D` for diff overlay)
+- Command palette (`⌘K`) indexing every section, intent, check, and toggle
+- Click-to-zoom Mermaid intent graph with pan and zoom
+- Phase Gateway (Specify / Plan / Tasks / Implement) derived from each intent's status + dependencies
+- Acceptance criteria rendered Given / When / Then per check
+- Decision log aggregating audit failures, reverse-audit, layer-2, and confidence-audit verdicts
+- Per-intent reading-progress rings (turn off via `gpr config set viewer.rings false`)
+- Optional rationale sidenotes when an intent or check has a `rationale` field
+- Diff overlay against the latest snapshot (toolbar `diff` button or `D` key)
+- Optional inline-edit mode that downloads a unified-diff patch (`gpr config set viewer.editable true`)
+- Four styles (editorial / terminal / notebook / brutalist), four themes (paper / sepia / dark / arctic), three font sizes
+- Print stylesheet that expands every section and breaks intents on page boundaries
+
+To watch a run live:
+
+```bash
+gpr render --watch --auto-refresh 2
 ```
-1. Read Steer.md         → if non-empty, do that work and clear it
-2. Pick next intent      → continue an in-progress one if any; else priority + deps
-3. Render the prompt     → goal in <untrusted_goal>, intent block, pinned, spine, errors, budget, signal grammar
-4. Spawn the agent       → clean session, per-iter timeout, stream parsed for tokens
-5. Parse the signal      → refuse to mark done without an explicit signal
-6. Run audit             → Layer-1 verifyCmd; on fail, revert to open + log
-7. (--deep-audit)        → Layer-2 cross-model verifier scrutinises done-flips
-8. Update signature      → payload-hash + checkbox count for stalemate detector
-9. Decide stop condition → achieved | blocked | decide | rescope | budget_limited | stalemate | zero_progress
-```
 
-When all intents flip done, gpr runs the **reverse audit** — a final spec-drift sweep that re-checks every closed intent and inspects the cumulative diff against the goal. It can refuse to declare `achieved` and reopen intents or recommend a rescope.
+The viewer is a work in progress. Six concept demos for patterns we considered live in [`docs/examples/`](docs/examples/index.html) — per-intent rings, Tufte sidenotes, Tangle scrubbable metrics, Matuschak stacked columns, diff overlay, inline-edit patch export. If a pattern there matches a need or you've seen better, file an issue or send a PR.
 
-### Signal grammar
+[back to top](#gpr)
 
-The agent emits exactly one block at the end of each iteration:
-
-```
----gpr-signal---
-{"status":"done","intent":"I001","checks_attempted":["C1","C2"],
- "memory":{"mode":"append","content":"Decided on JWT over sessions because ..."}}
----end---
-```
-
-`status` ∈ `{done, progress, blocked, decide, rescope}`. `done` only flips an intent if the audit passes — the agent cannot self-promote.
-
-### Stop conditions
-
-| Exit | Status | Meaning |
-|---:|---|---|
-| 0 | `achieved` | All intents done, quality gates green, reverse audit clean |
-| 2 | `blocked` | Agent emitted `blocked`; left for human |
-| 3 | `decide` | Agent emitted `decide`; question written to `Steer.md` |
-| 4 | `budget_limited` | Budget exhausted; final wrap-up turn ran |
-| 5 | `unmet_zero_progress` | Two consecutive iterations with no meaningful tool calls |
-| 6 | `unmet_stalemate` | Four iterations with no signature change |
-| 7 | `rescope` | Agent proposed a plan rewrite; awaiting human review |
-| 8 | `unmet_disk_full` | Less than 1GB free at iteration start |
+---
 
 ## Two ways to invoke
 
 | Mode | What it is | Best for |
 |---|---|---|
-| **CLI** (`gpr run`) | External process. gpr spawns the agent as a subprocess each round. | Autonomous overnight runs, headless servers, CI. |
-| **Claude skill** (`/gpr`) | One iteration runs inside your current Claude TUI session. The CLI is the canonical state machine; the skill borrows your active session as the worker. | Already in Claude and want to ratchet without leaving. |
+| **CLI** (`gpr run`) | External process. gpr spawns the agent as a subprocess each round. | Autonomous overnight runs, headless servers, CI |
+| **Claude skill** (`/gpr`) | One iteration runs inside your current Claude TUI session. | You're already in Claude and want to ratchet without leaving |
 
-An MCP server (Mode C) is on the roadmap once usage patterns settle.
+An MCP server (Mode C, accessible from Codex / Cursor / any MCP client) is on the roadmap once usage settles.
+
+[back to top](#gpr)
+
+---
 
 ## The /gpr-grill flow
 
-If you start `/gpr` without an existing Plan, it activates **gpr-grill** — a cleanroom interactive spec interview that walks you through goal lock, success metric, tech stack, anti-goals, intent decomposition, per-intent checks, budget, and finally a **confidence audit**. Eight beats, one question per turn, refuses hand-waving and weak `verifyCmd`s.
+`/gpr` without an existing Plan activates **gpr-grill** — a cleanroom interactive interview that walks you through nine beats: persona, goal lock, success metric, tech stack, anti-goals, intent decomposition, per-intent checks, budget, and a confidence audit. One question per turn. Refuses hand-waving and weak `verifyCmd`s.
 
-The confidence audit is the safety net. Before the loop is allowed to run, `gpr confidence-audit` invokes a scrutiniser agent that inspects the Plan for eight categories of loophole — goal coverage, DAG sanity, gameable verifyCmds, missing quality gates, Pinned-invariant contradictions, unrealistic budget, uncovered anti-goals, audit-cost vs work-cost — and emits a structured verdict. The interview loops until the auditor returns `confident: true` or the user explicitly waives a remaining loophole into `.gpr/Pinned.md`. Output is a complete `.gpr/Plan.json` that has survived adversarial review.
+The confidence audit is the safety net. Before the loop runs, `gpr confidence-audit` invokes a scrutiniser agent that inspects the Plan for eight categories of loophole — goal coverage, DAG sanity, gameable verifyCmds, missing quality gates, Pinned-invariant contradictions, unrealistic budget, uncovered anti-goals, audit-cost vs work-cost. The interview loops until the auditor returns `confident: true` or you explicitly waive a remaining loophole into `.gpr/Pinned.md`.
+
+[back to top](#gpr)
+
+---
 
 ## Compared to prior art
 
@@ -155,22 +192,155 @@ The confidence audit is the safety net. Before the loop is allowed to run, `gpr 
 | Multi-agent | partial | yes | yes | — | yes |
 | Replay forensics | — | — | — | — | yes |
 
+[back to top](#gpr)
+
+---
+
+## Configuration
+
+<details>
+<summary>All config keys (defaults, scopes)</summary>
+
+User-global config lives at `~/.config/gpr/config.json`. Per-project overrides at `.gpr/viewer-config.json`. Environment variables (`GPR_VIEWER_STYLE=...`) trump both.
+
+| Key | Default | Notes |
+|---|---|---|
+| `viewer.style` | `editorial` | `editorial` / `terminal` / `notebook` / `brutalist` |
+| `viewer.theme` | `paper` | `paper` / `sepia` / `dark` / `arctic` |
+| `viewer.font_size` | `default` | `compact` / `default` / `large` |
+| `viewer.spotlight` | `true` | radial-gradient spotlight cursor |
+| `viewer.rings` | `true` | per-intent reading-progress rings |
+| `viewer.sidenotes` | `true` | rationale sidenotes when fields are present |
+| `viewer.scrubbable_budget` | `false` | reactive budget knobs (placeholder) |
+| `viewer.editable` | `false` | contenteditable + patch download |
+| `viewer.auto_refresh` | `0` | seconds between meta-refresh; `0` disables |
+| `run.agent` | `claude` | `claude` / `codex` / `opencode` / `gemini` / `echo` |
+| `run.deep_audit` | `false` | invoke Layer-2 cross-model auditor on done-flips |
+| `run.audit_agent` | `null` | override agent for Layer-2 |
+| `run.max_iters` | `50` | hard cap on iterations per run |
+
+```bash
+gpr config list
+gpr config set viewer.style terminal
+gpr config set viewer.editable true --scope project
+gpr config unset viewer.style
+gpr config reset
+```
+
+</details>
+
+<details>
+<summary>Plan.json schema</summary>
+
+```json
+{
+  "schema_version": "1.1.0",
+  "project": "string",
+  "goal": "string",
+  "branch": "string",
+  "createdAt": "ISO timestamp",
+  "status": "pursuing | paused | achieved | unmet_* | budget_limited | rescope_pending",
+  "persona": {
+    "primary": "principal_engineer | senior_architect | rapid_prototyper | research_partner",
+    "rationale": "string"
+  },
+  "qualityGates": [{"name": "string", "cmd": "string", "required": true}],
+  "budget": {"tokens": 5000000, "wallClockSeconds": 7200, "maxCostUsd": 25.0},
+  "intents": [
+    {
+      "id": "I001",
+      "title": "string",
+      "status": "open | in_progress | done | paused",
+      "priority": 10,
+      "dependsOn": ["string"],
+      "rationale": "string (optional, drives sidenote)",
+      "checks": [
+        {
+          "id": "C1",
+          "description": "string",
+          "verifyCmd": "string (shell command)",
+          "rationale": "string (optional)",
+          "timeoutSeconds": 300,
+          "retries": 3
+        }
+      ],
+      "proofs": [],
+      "auditFailures": []
+    }
+  ],
+  "globalState": {"iteration": 0, "consecutiveSameSignature": 0, "wrapUpFlag": false}
+}
+```
+
+</details>
+
+<details>
+<summary>Stop conditions and exit codes</summary>
+
+| Exit | Status | Meaning |
+|---:|---|---|
+| 0 | `achieved` | All intents done, quality gates green, reverse audit clean |
+| 2 | `blocked` | Agent emitted `blocked`; left for human |
+| 3 | `decide` | Agent emitted `decide`; question written to `Steer.md` |
+| 4 | `budget_limited` | Budget exhausted; final wrap-up turn ran |
+| 5 | `unmet_zero_progress` | Two consecutive iterations with no meaningful tool calls |
+| 6 | `unmet_stalemate` | Four iterations with no signature change |
+| 7 | `rescope` | Agent proposed a plan rewrite; awaiting human review |
+| 8 | `unmet_disk_full` | Less than 1GB free at iteration start |
+
+</details>
+
+<details>
+<summary>Live updates while a run is going</summary>
+
+Every iteration reads:
+
+| File | Read each iter | Use |
+|---|---|---|
+| `Steer.md` | first thing | the right channel for live human steering |
+| `Plan.json` | yes (fcntl-locked) | edit between iters; takes effect next round |
+| `Pinned.md` | yes | applies next iter |
+| `Spine.md` | yes (agent may overwrite) | edits respected but transient |
+| `errors.log` | last 100 lines | applies next iter |
+
+`Plan.html` is **not** read by the agent — it's a one-way render of state. To watch live:
+
+```bash
+gpr render --watch --auto-refresh 2
+```
+
+</details>
+
+[back to top](#gpr)
+
+---
+
 ## Reference
 
-- [SKILL.md](install/skill/SKILL.md) — what Claude does for one iteration
+- [SKILL.md](install/skill/SKILL.md) — exact instructions Claude follows for one iteration
 - [DESIGN.md](DESIGN.md) — design rationale and credit to prior art
-- [CONTRIBUTING.md](CONTRIBUTING.md) — how to add an agent backend, write a check, or propose a feature
+- [SECURITY.md](SECURITY.md) — threat model and accepted risks
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to add an agent backend, write a check, propose a feature
 - [CHANGELOG.md](CHANGELOG.md) — release notes
 - [examples/hello-fastapi/](examples/hello-fastapi/) — three-intent worked example
+- [docs/examples/](docs/examples/index.html) — six concept demos for the next viewer pass
+
+[back to top](#gpr)
+
+---
 
 ## Credits
 
 Two skills not in this repo gave gpr good ideas to bake into the loop:
 
-- **[mattpocock/skills](https://github.com/mattpocock/skills)** — Matt Pocock's small, composable engineering skills. The `grill-with-docs` skill in particular shaped how `gpr-grill` interviews the user beat by beat with refusal rules instead of running a one-shot template fill. The `tdd` and `improve-codebase-architecture` skills informed the test-discipline and module-shape choices in the `lib/state/` layer. MIT licensed; thank you Matt.
-- **[mdrxy/staged-pr](https://gist.github.com/mdrxy/7ed93ddeac5706bce0318e7c4b436efd)** — the staged-pr skill is the source of the conventional-commits-with-scope discipline, the conceptual-bullets-not-by-file rule, the noise filter (skip lockfiles, generated code, dependency bumps), and the explicit anti-pattern list (no "this PR…", no "going forward", no "leverages" without specifics). `gpr commit-intent` and `gpr pr-description` apply that discipline to gpr's own outputs.
+- **[mattpocock/skills](https://github.com/mattpocock/skills)** (MIT). The `grill-with-docs` skill shaped how `gpr-grill` interviews the user beat by beat with refusal rules. The `tdd` and `improve-codebase-architecture` skills informed the test discipline and module shape in `lib/state/`.
+- **[mdrxy/staged-pr](https://gist.github.com/mdrxy/7ed93ddeac5706bce0318e7c4b436efd)**. Source of the conventional-commits-with-scope discipline, the conceptual-bullets-not-by-file rule, the noise filter, and the explicit anti-pattern list. `gpr commit-intent` and `gpr pr-description` apply that discipline to gpr's own outputs.
 
-All borrowed ideas are credited in [DESIGN.md](DESIGN.md) with specifics on what was kept, what was changed, and why.
+Borrowed ideas are credited in [DESIGN.md](DESIGN.md) with specifics on what was kept, what was changed, and why.
+
+[back to top](#gpr)
+
+---
 
 ## Cleanroom statement
 
