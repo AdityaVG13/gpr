@@ -52,7 +52,12 @@ agent_run() {
 _agent_argv() {
   case "$1" in
     claude)
-      printf 'claude\n--print\n--output-format\nstream-json\n--verbose\n--dangerously-skip-permissions\n--append-system-prompt\n'
+      # Note: do NOT add `--append-system-prompt` here without a value.
+      # That flag consumes the next positional, which would swallow the
+      # rendered prompt and leave Claude with nothing to do (wall=0s,
+      # no signal block). The continuation prompt template already
+      # includes everything the agent needs.
+      printf 'claude\n--print\n--output-format\nstream-json\n--verbose\n--dangerously-skip-permissions\n'
       ;;
     codex)
       printf 'codex\nexec\n--dangerously-bypass-approvals-and-sandbox\n--json\n'
