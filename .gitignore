@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# uv
+.uv-cache/
+uv.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# gpr per-project state (target repos)
+.gpr/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local dev
+*.log
+*.tmp
+scratch/
