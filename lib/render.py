@@ -178,6 +178,36 @@ def audit_check_prompt(
     return base + "\n\n## Inputs (this iteration)\n\n" + "\n".join(proofs_lines)
 
 
+def confidence_audit_prompt(plan: dict[str, Any], gpr_dir: Path) -> str:
+    """Render the confidence-audit prompt for a candidate Plan."""
+    base = _read_prompt_file("confidence_audit.md")
+    intents_block = []
+    for it in plan["intents"]:
+        intents_block.append(
+            f"- {it['id']} ({it['status']}, priority {it['priority']}): {it['title']}"
+        )
+        for ch in it["checks"]:
+            cmd = ch.get("verifyCmd") or "(manual)"
+            intents_block.append(f"    {ch['id']}: {ch['description']} | {cmd}")
+        if it["dependsOn"]:
+            intents_block.append(f"    (depends on: {', '.join(it['dependsOn'])})")
+    gates_block = "\n".join(
+        f"- {g['name']} (required={g.get('required', True)}): {g['cmd']}"
+        for g in plan.get("qualityGates", [])
+    ) or "(none)"
+    budget = plan.get("budget", {})
+    return (
+        base
+        + "\n\n## Plan to audit\n\n"
+        + f"Goal: {plan['goal']}\n\n"
+        + f"Project: {plan['project']}  ·  branch: {plan['branch']}\n\n"
+        + f"Budget: tokens={budget.get('tokens')} wallSeconds={budget.get('wallClockSeconds')} maxCostUsd={budget.get('maxCostUsd')}\n\n"
+        + "Intents:\n" + "\n".join(intents_block)
+        + "\n\nQuality gates:\n" + gates_block
+        + "\n\nPinned invariants:\n" + _read_or_empty(gpr_dir / "Pinned.md")
+    )
+
+
 def commit_message_prompt(
     intent: dict[str, Any], audit_detail: list[dict[str, Any]], diff_text: str
 ) -> str:

@@ -14,7 +14,7 @@ You are interviewing the user to turn a fuzzy goal into a structured Plan that g
 - **Refuse hand-waving.** If the user answers vaguely ("just make it good", "you decide"), ask a sharper follow-up. Do not proceed with placeholders.
 - **Concrete over abstract.** Every Check must have a `verifyCmd` that can pass or fail deterministically. If the user can only describe a check in prose, reject it and rephrase as a command.
 
-## The seven beats
+## The eight beats
 
 Run these in order. Skip a beat only when the answer is already evident from the codebase or from a previous beat.
 
@@ -79,9 +79,24 @@ If the user proposes a `test -f` check, push back: "That proves existence, not c
 
 Sensible defaults: 5,000,000 tokens, 7,200 seconds (2 hours), $25. Use those if the user says "default".
 
+### Beat 8 — Confidence audit (loop until 100% confident)
+
+After the seven beats, the Plan is a draft, not a contract. Run the confidence audit before letting the loop touch it:
+
+```bash
+gpr confidence-audit
+```
+
+This invokes a scrutiniser agent that reads the draft Plan and inspects eight categories of loophole — goal coverage, DAG sanity, verifiability of every Check, quality-gate sufficiency, Pinned-invariant contradictions, budget realism, anti-goal coverage, audit-vs-work cost — and emits a verdict block. If `confident: true` the Plan is locked. If `confident: false`:
+
+- `recommendation: revise_plan` — show the user the loopholes one at a time, accept their decision per-loophole, edit the Plan, and re-run the audit. Loop until confident or until the user explicitly accepts a known-imperfect Plan ("ship it anyway").
+- `recommendation: rewrite_plan` — the decomposition is wrong. Run beats 5 through 7 again from scratch.
+
+Do not declare the grill complete until the confidence audit returns confident: true OR the user has explicitly waived a remaining loophole on the record (write the waiver into `.gpr/Pinned.md` so the run prompt sees it).
+
 ## Final write
 
-When all seven beats are complete, write `.gpr/Plan.json` directly with the Write tool. Schema:
+When all eight beats are complete, write `.gpr/Plan.json` directly with the Write tool. Schema:
 
 ```json
 {
@@ -111,7 +126,9 @@ When all seven beats are complete, write `.gpr/Plan.json` directly with the Writ
 
 Then write `.gpr/Pinned.md` with the Beat-3 stack and Beat-4 anti-goals.
 
-Then run `gpr lint` via Bash. If warnings come back, walk the user through them — weak verifyCmds and unknown deps are the most common.
+Then run `gpr lint` via Bash for the deterministic warnings (weak verifyCmds, unknown deps, dependency cycles). Walk the user through each one.
+
+Then run `gpr confidence-audit` via Bash for the model-driven scrutiny. Walk the user through every loophole one at a time. Apply fixes by editing Plan.json directly. Re-run the audit. Repeat until `confident: true` or the user has waived all remaining loopholes into Pinned.md.
 
 Finally: print a one-line summary and ask whether to start the loop now (`/gpr` to begin first iteration) or to review the Plan first.
 

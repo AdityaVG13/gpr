@@ -425,6 +425,52 @@ def cmd_ingest_reverse_verdict(args: argparse.Namespace) -> int:
     return 0 if verdict["clean"] else 2
 
 
+def cmd_render_confidence_prompt(args: argparse.Namespace) -> int:
+    from . import render as render_mod
+    root = _project_root()
+    plan = plan_mod.load(root)
+    sys.stdout.write(render_mod.confidence_audit_prompt(plan, _gpr_dir()))
+    return 0
+
+
+def cmd_ingest_confidence(args: argparse.Namespace) -> int:
+    text = sys.stdin.read() if args.stdin else (args.text or "")
+    try:
+        verdict = signal_mod.parse_confidence_audit(text)
+    except signal_mod.SignalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    root = _project_root()
+    events_mod.emit(root, "confidence_audit", verdict)
+
+    if verdict["recommendation"] == "rewrite_plan":
+        steer = _gpr_dir() / "Steer.md"
+        existing = steer.read_text() if steer.exists() else ""
+        loops_lines = "\n".join(
+            f"- [{l.get('category')}] {l.get('problem')} → fix: {l.get('fix')}"
+            for l in verdict["loopholes"]
+        )
+        steer.write_text(
+            "# Confidence audit recommends rewriting the Plan\n\n"
+            f"Loopholes ({len(verdict['loopholes'])}):\n{loops_lines}\n\n"
+            "Run /gpr-grill again to redo the decomposition.\n\n"
+            f"---\n{existing}"
+        )
+
+    if args.json:
+        _print_json(verdict)
+    else:
+        print(f"confident: {verdict['confident']}")
+        print(f"recommendation: {verdict['recommendation']}")
+        if verdict["loopholes"]:
+            print(f"loopholes: {len(verdict['loopholes'])}")
+            for l in verdict["loopholes"]:
+                print(f"  [{l.get('category', '?')}] {l.get('problem', '')}")
+                print(f"    fix: {l.get('fix', '')}")
+    return 0 if verdict["confident"] else 2
+
+
 def cmd_render_commit_prompt(args: argparse.Namespace) -> int:
     from . import render as render_mod
     root = _project_root()
@@ -698,6 +744,15 @@ def main() -> int:
     pirv.add_argument("--text", default=None)
     pirv.add_argument("--json", action="store_true")
     pirv.set_defaults(func=cmd_ingest_reverse_verdict)
+
+    pcap = sub.add_parser("render-confidence-prompt")
+    pcap.set_defaults(func=cmd_render_confidence_prompt)
+
+    picon = sub.add_parser("ingest-confidence")
+    picon.add_argument("--stdin", action="store_true")
+    picon.add_argument("--text", default=None)
+    picon.add_argument("--json", action="store_true")
+    picon.set_defaults(func=cmd_ingest_confidence)
 
     pcp = sub.add_parser("render-commit-prompt")
     pcp.add_argument("--intent", required=True)

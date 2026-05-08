@@ -86,6 +86,40 @@ def test_parse_commit_rejects_overlong_title():
         sm.parse_commit_message(text)
 
 
+def test_parse_confidence_audit_confident():
+    text = """\
+---gpr-confidence-audit---
+{"confident":true,"loopholes":[],"recommendation":"accept"}
+---end---
+"""
+    v = sm.parse_confidence_audit(text)
+    assert v["confident"] is True
+    assert v["recommendation"] == "accept"
+
+
+def test_parse_confidence_audit_with_loopholes():
+    text = """\
+---gpr-confidence-audit---
+{"confident":false,"loopholes":[{"category":"Verifiability of each Check","intent":"I001","check":"C2","problem":"verifyCmd is `test -f`","fix":"replace with grep + behaviour test"}],"recommendation":"revise_plan"}
+---end---
+"""
+    v = sm.parse_confidence_audit(text)
+    assert v["confident"] is False
+    assert v["recommendation"] == "revise_plan"
+    assert len(v["loopholes"]) == 1
+    assert v["loopholes"][0]["intent"] == "I001"
+
+
+def test_parse_confidence_audit_invalid_recommendation():
+    text = """\
+---gpr-confidence-audit---
+{"confident":false,"loopholes":[],"recommendation":"ship_anyway"}
+---end---
+"""
+    with pytest.raises(sm.SignalError, match="recommendation"):
+        sm.parse_confidence_audit(text)
+
+
 def test_parse_pr_description():
     text = """\
 ---gpr-pr---

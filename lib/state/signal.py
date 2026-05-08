@@ -165,6 +165,36 @@ def parse_audit_verdict(text: str) -> dict[str, Any]:
     }
 
 
+def parse_confidence_audit(text: str) -> dict[str, Any]:
+    pattern = re.compile(
+        r"^[ \t]*---gpr-confidence-audit---[ \t]*\n(.*?)\n[ \t]*---end---[ \t]*$",
+        re.MULTILINE | re.DOTALL,
+    )
+    matches = list(pattern.finditer(text))
+    if not matches:
+        raise SignalError("no ---gpr-confidence-audit--- block found")
+    raw = matches[-1].group(1).strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SignalError(f"invalid JSON in confidence audit: {exc}") from exc
+    if not isinstance(data.get("confident"), bool):
+        raise SignalError("confident must be a boolean")
+    loops = data.get("loopholes") or []
+    if not isinstance(loops, list):
+        raise SignalError("loopholes must be a list")
+    rec = data.get("recommendation")
+    if rec not in {"accept", "revise_plan", "rewrite_plan"}:
+        raise SignalError(
+            "recommendation must be one of accept|revise_plan|rewrite_plan"
+        )
+    return {
+        "confident": data["confident"],
+        "loopholes": loops,
+        "recommendation": rec,
+    }
+
+
 def parse_commit_message(text: str) -> dict[str, str]:
     pattern = re.compile(
         r"^[ \t]*---gpr-commit---[ \t]*\n(.*?)\n[ \t]*---end---[ \t]*$",
