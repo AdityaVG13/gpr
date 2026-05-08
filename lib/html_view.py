@@ -396,6 +396,8 @@ def _command_palette_data(plan: dict[str, Any]) -> str:
         {"kind": "action", "label": "Filter: paused", "action": "filter:paused"},
         {"kind": "action", "label": "Open intent graph fullscreen", "action": "graph:fullscreen"},
         {"kind": "action", "label": "Toggle spotlight cursor", "action": "spotlight:toggle"},
+        {"kind": "action", "label": "Story mode (toggle)", "action": "mode:story"},
+        {"kind": "action", "label": "Normal mode", "action": "mode:normal"},
         {"kind": "action", "label": "Style: editorial", "action": "style:editorial"},
         {"kind": "action", "label": "Style: terminal", "action": "style:terminal"},
         {"kind": "action", "label": "Style: notebook", "action": "style:notebook"},
@@ -509,6 +511,47 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   transition: background 200ms ease, color 200ms ease;
 }
+
+/* === STORY MODE === */
+:root[data-mode="story"] .toolbar,
+:root[data-mode="story"] .toc-rail,
+:root[data-mode="story"] .marginalia,
+:root[data-mode="story"] .spotlight,
+:root[data-mode="story"] .scroll-rail-top,
+:root[data-mode="story"] .gateway,
+:root[data-mode="story"] .mermaid-frame::after,
+:root[data-mode="story"] #section-events,
+:root[data-mode="story"] .intent-counters,
+:root[data-mode="story"] .copy-btn,
+:root[data-mode="story"] .copy-id,
+:root[data-mode="story"] .chevron,
+:root[data-mode="story"] .phase-pill { display: none !important; }
+:root[data-mode="story"] .layout {
+  display: block; max-width: 720px; padding: 64px 24px 120px;
+}
+:root[data-mode="story"] .paper {
+  box-shadow: none; padding: 0; background: transparent;
+}
+:root[data-mode="story"] .intent-card { border: none; background: transparent; margin-bottom: 32px; }
+:root[data-mode="story"] .intent-summary { padding: 0; cursor: default; }
+:root[data-mode="story"] .intent-detail { display: block !important; height: auto !important; overflow: visible !important; border-top: none; }
+:root[data-mode="story"] .intent-detail-inner { padding: 12px 0 0 0; }
+:root[data-mode="story"] .intent-title { font-size: 24px; }
+:root[data-mode="story"] body { font-size: 18px; }
+:root[data-mode="story"] .section-h::after { display: none; }
+:root[data-mode="story"] .section-h::before {
+  content: ""; display: block; width: 24px; height: 1px;
+  background: var(--ink-faint); margin-bottom: 12px;
+}
+.story-exit {
+  position: fixed; top: 24px; right: 24px; z-index: 50;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em;
+  padding: 6px 12px; border: 1px solid var(--hairline-strong);
+  background: var(--paper); color: var(--ink-muted); border-radius: 4px;
+  cursor: pointer; display: none;
+}
+:root[data-mode="story"] .story-exit { display: inline-block; }
 
 /* === FONT-SIZE PRESETS === */
 :root[data-font-size="compact"] {
@@ -625,6 +668,42 @@ html, body {
 :root[data-style="brutalist"] .scroll-rail-top { height: 4px; }
 :root[data-style="brutalist"] hr.hairline { border-top-width: 2px; }
 :root[data-style="brutalist"] .spec-lede { font-size: 13px; }
+
+/* === SCROLL-TRIGGERED FADE-UP === */
+.fade-up { opacity: 0; transform: translateY(12px); transition: opacity 500ms ease-out, transform 500ms ease-out; }
+.fade-up.in-view { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) { .fade-up { opacity: 1; transform: none; transition: none; } }
+
+/* === HASH-ON-HOVER ANCHORS === */
+.anchor-link {
+  text-decoration: none; color: inherit;
+  position: relative;
+}
+.anchor-link::after {
+  content: "#";
+  position: absolute; right: -1.4em; top: 0;
+  color: var(--accent); opacity: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.7em;
+  transition: opacity 100ms ease;
+  pointer-events: none;
+}
+.anchor-link:hover::after, .anchor-link:focus::after { opacity: 0.55; }
+
+/* === MARGINALIA CALLOUTS === */
+.margin-block {
+  border-top: none;
+  background: var(--accent-faint);
+  border-left: 2px solid var(--accent);
+  padding: 14px 16px 16px;
+  border-radius: 2px;
+}
+.margin-block + .margin-block { margin-top: 16px; }
+.margin-block.callout-pinned { border-left-color: var(--accent); background: color-mix(in oklab, var(--accent) 6%, var(--paper)); }
+.margin-block.callout-spine { border-left-color: var(--ink-muted); background: color-mix(in oklab, var(--ink-muted) 5%, var(--paper)); }
+.margin-block.callout-info { border-left-color: var(--accent-soft); background: var(--accent-faint); }
+.margin-block.callout-info p { line-height: 1.7; }
+.margin-block.callout-info kbd { color: var(--ink-muted); background: var(--paper); margin: 0 1px; }
 
 /* --- top scroll-progress bar --- */
 .scroll-rail-top {
@@ -1436,6 +1515,7 @@ document.addEventListener('alpine:init', () => {
     theme: document.documentElement.dataset.theme || 'paper',
     style: document.documentElement.dataset.style || 'editorial',
     fontSize: document.documentElement.dataset.fontSize || 'default',
+    mode: 'normal',
     spotlightOn: true,
     paletteOpen: false,
     paletteQuery: '',
@@ -1449,6 +1529,7 @@ document.addEventListener('alpine:init', () => {
       this.applyTheme();
       this.applyStyle();
       this.applyFontSize();
+      this.applyMode();
       this.applyFilter();
       this.bindScroll();
       this.bindIntersection();
@@ -1456,6 +1537,8 @@ document.addEventListener('alpine:init', () => {
       this.bindCopy();
       this.bindMermaidZoom();
       this.bindSpotlight();
+      this.bindFadeUp();
+      this.bindAnchors();
     },
 
     persist() {
@@ -1465,6 +1548,7 @@ document.addEventListener('alpine:init', () => {
         theme: this.theme,
         style: this.style,
         fontSize: this.fontSize,
+        mode: this.mode,
         spotlightOn: this.spotlightOn,
       }));
     },
@@ -1473,6 +1557,9 @@ document.addEventListener('alpine:init', () => {
     applyStyle() { document.documentElement.dataset.style = this.style; },
     setFontSize(f) { this.fontSize = f; this.applyFontSize(); this.persist(); },
     applyFontSize() { document.documentElement.dataset.fontSize = this.fontSize; },
+    setMode(m) { this.mode = m; this.applyMode(); this.persist(); this.toast(m === 'story' ? 'story mode · press s to exit' : 'normal mode'); },
+    applyMode() { document.documentElement.dataset.mode = this.mode; },
+    toggleMode() { this.setMode(this.mode === 'story' ? 'normal' : 'story'); },
     toggleSpotlight() {
       this.spotlightOn = !this.spotlightOn;
       const el = document.querySelector('.spotlight');
@@ -1567,10 +1654,12 @@ document.addEventListener('alpine:init', () => {
           return;
         }
         if (isInput) { if (e.key === 'Escape') e.target.blur(); return; }
+        if (e.key === 'Escape' && this.mode === 'story') { this.setMode('normal'); return; }
         if (e.key === '?') { e.preventDefault(); this.openPalette(); return; }
         if (e.key === '/') { e.preventDefault(); this.openPalette(); return; }
         if (e.key === 'j') { e.preventDefault(); this.jumpRel(+1); return; }
         if (e.key === 'k') { e.preventDefault(); this.jumpRel(-1); return; }
+        if (e.key === 's' || e.key === 'S') { e.preventDefault(); this.toggleMode(); return; }
       });
     },
 
@@ -1626,6 +1715,7 @@ document.addEventListener('alpine:init', () => {
         else if (verb === 'spotlight' && arg === 'toggle') this.toggleSpotlight();
         else if (verb === 'style') this.setStyle(arg);
         else if (verb === 'fontsize') this.setFontSize(arg);
+        else if (verb === 'mode') this.setMode(arg);
         else if (verb === 'print') window.print();
       }
     },
@@ -1657,6 +1747,40 @@ document.addEventListener('alpine:init', () => {
           fit: true, center: true, minZoom: 0.5, maxZoom: 8,
         });
       }
+    },
+
+    /* --- scroll-triggered fade-up --- */
+    bindFadeUp() {
+      if (!('IntersectionObserver' in window)) {
+        document.querySelectorAll('.fade-up').forEach(s => s.classList.add('in-view'));
+        return;
+      }
+      const obs = new IntersectionObserver(entries => {
+        entries.forEach(en => {
+          if (en.isIntersecting) {
+            en.target.classList.add('in-view');
+            obs.unobserve(en.target);
+          }
+        });
+      }, { rootMargin: '0px 0px -10% 0px', threshold: 0.05 });
+      document.querySelectorAll('.fade-up').forEach(s => obs.observe(s));
+    },
+
+    /* --- hash-on-hover anchors: click copies link with toast --- */
+    bindAnchors() {
+      document.addEventListener('click', (e) => {
+        const a = e.target.closest('.anchor-link');
+        if (!a) return;
+        e.preventDefault();
+        const id = (a.getAttribute('href') || '').replace('#', '');
+        if (!id) return;
+        const url = location.origin + location.pathname + '#' + id;
+        navigator.clipboard.writeText(url).then(() => this.toast('link copied'))
+                                          .catch(() => this.toast('copy failed'));
+        history.replaceState(null, '', '#' + id);
+        const el = document.getElementById(id);
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      });
     },
 
     /* --- spotlight cursor: CSS variable, rAF-coalesced — direct follow, no lag --- */
@@ -1722,6 +1846,7 @@ mermaid.initialize({{
 
 <div class="spotlight"></div>
 <div class="scroll-rail-top"></div>
+<button class="story-exit" @click="setMode('normal')">exit story · esc</button>
 
 <nav class="toolbar" role="toolbar">
   <div class="brand"><strong>gpr</strong> · {brand_proj}</div>
@@ -1758,6 +1883,7 @@ mermaid.initialize({{
       </select>
     </div>
     <button class="ghost-btn" :aria-pressed="spotlightOn" @click="toggleSpotlight()" title="spotlight cursor">spot</button>
+    <button class="ghost-btn" @click="toggleMode()" title="story mode (S)">story</button>
     <button class="ghost-btn" @click="window.print()" title="print">print</button>
   </div>
 </nav>
@@ -1868,7 +1994,7 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
     phase_gw = _phase_gateway_html(plan)
 
     body = f"""
-    <header id="section-goal" class="spec-header measure">
+    <header id="section-goal" class="spec-header measure fade-up">
       <div class="meta spec-meta">
         <span>{_esc(plan["project"])}</span>
         <span class="sep">/</span>
@@ -1878,14 +2004,14 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
         <span class="sep">/</span>
         <span>persona · {_esc(persona.replace("_", " "))}</span>
       </div>
-      <h1 class="spec-title">{_esc(plan["goal"])}</h1>
+      <h1 class="spec-title"><a href="#section-goal" class="anchor-link">{_esc(plan["goal"])}</a></h1>
       <p class="spec-lede">A spec lives in two states at once: a story humans read top-to-bottom, and a contract machines verify line-by-line. This page is both.</p>
     </header>
 
     <hr class="hairline">
 
-    <section class="measure">
-      <h2 class="section-h">progress</h2>
+    <section class="measure fade-up">
+      <h2 class="section-h"><a href="#section-progress" class="anchor-link" id="section-progress">01 · progress</a></h2>
       <div class="stats">
         <div>
           <div class="stat-label">intents</div>
@@ -1916,15 +2042,15 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
 
     <hr class="hairline">
 
-    <section id="section-phases" class="measure-wide">
-      <h2 class="section-h">phase gateway</h2>
+    <section id="section-phases" class="measure-wide fade-up">
+      <h2 class="section-h"><a href="#section-phases" class="anchor-link">02 · phase gateway</a></h2>
       {phase_gw}
     </section>
 
     <hr class="hairline">
 
-    <section id="section-graph" class="measure-wide">
-      <h2 class="section-h">intent graph</h2>
+    <section id="section-graph" class="measure-wide fade-up">
+      <h2 class="section-h"><a href="#section-graph" class="anchor-link">03 · intent graph</a></h2>
       <div class="mermaid-frame">
         <pre class="mermaid">{_esc(dag)}</pre>
       </div>
@@ -1932,8 +2058,8 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
 
     <hr class="hairline">
 
-    <section id="section-intents" class="measure-wide">
-      <h2 class="section-h">intents</h2>
+    <section id="section-intents" class="measure-wide fade-up">
+      <h2 class="section-h"><a href="#section-intents" class="anchor-link">04 · intents</a></h2>
       <div class="intent-list">
         {intents_html}
       </div>
@@ -1941,22 +2067,22 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
 
     <hr class="hairline">
 
-    <section id="section-ac" class="measure-wide">
-      <h2 class="section-h">acceptance criteria · given/when/then</h2>
+    <section id="section-ac" class="measure-wide fade-up">
+      <h2 class="section-h"><a href="#section-ac" class="anchor-link">05 · acceptance criteria · given/when/then</a></h2>
       {ac_html}
     </section>
 
     <hr class="hairline">
 
-    <section id="section-decisions" class="measure-wide">
-      <h2 class="section-h">decision log</h2>
+    <section id="section-decisions" class="measure-wide fade-up">
+      <h2 class="section-h"><a href="#section-decisions" class="anchor-link">06 · decision log</a></h2>
       {decision_log}
     </section>
 
     <hr class="hairline">
 
-    <section id="section-events" class="measure-wide">
-      <h2 class="section-h">recent events</h2>
+    <section id="section-events" class="measure-wide fade-up">
+      <h2 class="section-h"><a href="#section-events" class="anchor-link">07 · recent events</a></h2>
       {events_html}
     </section>
     """
@@ -1964,24 +2090,25 @@ def render(plan: dict[str, Any], state: dict[str, Any], gpr_dir: Path,
     marginalia = ""
     if pinned_text.strip():
         marginalia += (
-            '<div class="margin-block">'
+            '<div class="margin-block callout-pinned">'
             '<div class="margin-label">pinned · invariants</div>'
             f'<div class="pinned-quote">{_esc(pinned_text.strip())}</div>'
             '</div>'
         )
     if spine_text.strip():
         marginalia += (
-            '<div class="margin-block">'
+            '<div class="margin-block callout-spine">'
             '<div class="margin-label">spine · memory</div>'
             f'<div class="pinned-quote">{_esc(spine_text.strip())}</div>'
             '</div>'
         )
     marginalia += (
-        '<div class="margin-block">'
-        '<div class="margin-label">cleanroom note</div>'
-        '<p>This artifact is dual-audience. Humans get a narrative; '
-        'agents get the embedded plan state. <code class="inline-cmd">gpr render</code> '
-        'regenerates after every iteration.</p>'
+        '<div class="margin-block callout-info">'
+        '<div class="margin-label">how to read this</div>'
+        '<p>Press <kbd style="font-family:JetBrains Mono;font-size:10px;padding:1px 5px;border:1px solid currentColor;border-radius:3px">S</kbd> for story mode · '
+        '<kbd style="font-family:JetBrains Mono;font-size:10px;padding:1px 5px;border:1px solid currentColor;border-radius:3px">⌘K</kbd> palette · '
+        '<kbd style="font-family:JetBrains Mono;font-size:10px;padding:1px 5px;border:1px solid currentColor;border-radius:3px">J</kbd>/<kbd style="font-family:JetBrains Mono;font-size:10px;padding:1px 5px;border:1px solid currentColor;border-radius:3px">K</kbd> walk intents · '
+        'click any heading to copy its link.</p>'
         '</div>'
     )
 
