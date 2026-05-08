@@ -1,28 +1,40 @@
-"""Audit: verifyCmd execution, retries, timeout, manual gate."""
+"""Audit: verifyCmd execution, retries, timeout, manual gate.
+
+Tests use `sys.executable -c "..."` for verifyCmds so they're
+cross-platform — `true` / `false` / `sleep` aren't on Windows cmd.exe.
+"""
 
 from __future__ import annotations
+
+import sys
 
 from lib.state import audit as audit_mod
 from lib.state import plan as plan_mod
 
+# Portable test commands. shell=True will dispatch through cmd.exe on
+# Windows / sh on POSIX; both can run "<python> -c '...'".
+PASS_CMD = f'"{sys.executable}" -c "pass"'
+FAIL_CMD = f'"{sys.executable}" -c "import sys; sys.exit(1)"'
+SLEEP_CMD = f'"{sys.executable}" -c "import time; time.sleep(5)"'
+
 
 def test_passing_check(tmp_project):
-    ch = {"id": "C1", "description": "x", "verifyCmd": "true",
-          "timeoutSeconds": 5, "retries": 1}
+    ch = {"id": "C1", "description": "x", "verifyCmd": PASS_CMD,
+          "timeoutSeconds": 10, "retries": 1}
     r = audit_mod.run_check(ch, tmp_project)
     assert r["result"] == "pass"
 
 
 def test_failing_check_retried(tmp_project):
-    ch = {"id": "C2", "description": "x", "verifyCmd": "false",
-          "timeoutSeconds": 5, "retries": 3}
+    ch = {"id": "C2", "description": "x", "verifyCmd": FAIL_CMD,
+          "timeoutSeconds": 10, "retries": 3}
     r = audit_mod.run_check(ch, tmp_project)
     assert r["result"] == "fail"
     assert len(r["attempts"]) == 3
 
 
 def test_timeout_classified_as_fail(tmp_project):
-    ch = {"id": "C3", "description": "x", "verifyCmd": "sleep 5",
+    ch = {"id": "C3", "description": "x", "verifyCmd": SLEEP_CMD,
           "timeoutSeconds": 1, "retries": 1}
     r = audit_mod.run_check(ch, tmp_project)
     assert r["result"] == "fail"
@@ -40,8 +52,8 @@ def test_audit_intent_aggregate(tmp_project):
     p = plan_mod.init(tmp_project, "demo", "g", "main")
     it = plan_mod.empty_intent("I", "x")
     it["checks"] = [
-        plan_mod.empty_check("C1", "pass", "true"),
-        plan_mod.empty_check("C2", "fail", "false"),
+        plan_mod.empty_check("C1", "pass", PASS_CMD),
+        plan_mod.empty_check("C2", "fail", FAIL_CMD),
     ]
     it["checks"][0]["retries"] = 1
     it["checks"][1]["retries"] = 1
@@ -55,7 +67,7 @@ def test_audit_intent_aggregate(tmp_project):
 def test_audit_all_pass_yields_proofs(tmp_project):
     p = plan_mod.init(tmp_project, "demo", "g", "main")
     it = plan_mod.empty_intent("I", "x")
-    it["checks"] = [plan_mod.empty_check("C1", "pass", "true")]
+    it["checks"] = [plan_mod.empty_check("C1", "pass", PASS_CMD)]
     it["checks"][0]["retries"] = 1
     plan_mod.add_intent(p, it)
     audit = audit_mod.audit_intent(p, "I", tmp_project)
@@ -68,7 +80,7 @@ def test_audit_all_pass_yields_proofs(tmp_project):
 def test_evidence_sweep_finds_regression(tmp_project):
     p = plan_mod.init(tmp_project, "demo", "g", "main")
     it = plan_mod.empty_intent("I", "x")
-    it["checks"] = [plan_mod.empty_check("C1", "no", "false")]
+    it["checks"] = [plan_mod.empty_check("C1", "no", FAIL_CMD)]
     it["checks"][0]["retries"] = 1
     it["status"] = "done"
     it["completedAt"] = "2026-05-07T00:00:00Z"
