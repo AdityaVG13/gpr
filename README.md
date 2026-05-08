@@ -28,6 +28,23 @@ gpr init --objective "Build a TODO REST API with auth"
 gpr run --agent claude --max-cost-usd 5
 ```
 
+<details>
+<summary>Platform-specific install (macOS / Linux / Windows)</summary>
+
+**macOS** — works as shown above. `brew install jq` if missing.
+
+**Linux** — works as shown. `apt install jq` / `dnf install jq` / `pacman -S jq` if missing.
+
+**Windows** — three paths:
+
+1. **WSL** (recommended). Inside `wsl`, follow the Linux steps. `claude` CLI runs inside WSL and uses your subscription session normally.
+2. **Git Bash** (MinGW). The same shell commands work; `~/.local/share/gpr` resolves under your Windows user profile. Install [Git for Windows](https://git-scm.com/download/win) for bash + jq, then run the quickstart in Git Bash.
+3. **Native PowerShell / cmd** is not supported. Use WSL or Git Bash.
+
+Desktop notifications use `osascript` on macOS, `notify-send` on Linux, and `powershell.exe` toast on Windows / WSL. Set `GPR_NO_NOTIFY=1` to disable.
+
+</details>
+
 Or, if you're already in a Claude Code TUI session inside a project:
 
 ```

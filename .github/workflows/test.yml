@@ -8,11 +8,12 @@ on:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12"]
       fail-fast: false
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
@@ -27,18 +28,41 @@ jobs:
         run: pytest tests/ -v --tb=short
 
   e2e:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install jq (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y jq
+      - name: Install jq (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install jq
+      - name: Run e2e dry-run
+        run: |
+          chmod +x bin/gpr tests/e2e_dryrun.sh
+          ./tests/e2e_dryrun.sh
+
+  e2e-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install jq
-        run: sudo apt-get install -y jq
-      - name: Run e2e dry-run
-        run: |
-          chmod +x bin/gpr tests/e2e_dryrun.sh
-          ./tests/e2e_dryrun.sh
+        run: choco install jq -y
+      - name: Run e2e dry-run (Git Bash)
+        run: ./tests/e2e_dryrun.sh
 
   shellcheck:
     runs-on: ubuntu-latest
@@ -48,5 +72,5 @@ jobs:
         uses: ludeeus/action-shellcheck@master
         with:
           scandir: ./bin
-          additional_files: lib/term.sh lib/agents.sh lib/notify.sh lib/loop.sh
+          additional_files: lib/term.sh lib/agents.sh lib/notify.sh lib/loop.sh lib/commit.sh
           severity: warning

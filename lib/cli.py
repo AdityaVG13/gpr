@@ -826,21 +826,38 @@ def cmd_lint(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
+    import platform
     import shutil
-    out: dict[str, Any] = {"checks": []}
+
+    out: dict[str, Any] = {
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+            "python": platform.python_version(),
+        },
+        "checks": [],
+    }
     rc = 0
+    py_candidates = ("python3", "python") if platform.system() == "Windows" else ("python3",)
+    py_path = next((shutil.which(c) for c in py_candidates if shutil.which(c)), None)
+    out["checks"].append({"name": "python", "ok": bool(py_path), "path": py_path})
+    if not py_path:
+        rc = 1
+
     for name, cmd in [
-        ("python3", "python3"),
         ("git", "git"),
         ("jq", "jq"),
         ("claude", "claude"),
         ("codex", "codex"),
         ("opencode", "opencode"),
+        ("gemini", "gemini"),
     ]:
         path = shutil.which(cmd)
         out["checks"].append({"name": name, "ok": bool(path), "path": path})
-        if name in ("python3", "git") and not path:
+        if name == "git" and not path:
             rc = 1
+
     out["ok"] = rc == 0
     if args.json:
         _print_json(out)

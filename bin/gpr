@@ -241,6 +241,14 @@ cmd_doctor() {
   hr
   local json
   json=$(python3 -m lib.cli doctor --json)
+  local sys_name sys_release sys_machine py_ver
+  sys_name=$(echo "$json" | jq -r '.platform.system')
+  sys_release=$(echo "$json" | jq -r '.platform.release')
+  sys_machine=$(echo "$json" | jq -r '.platform.machine')
+  py_ver=$(echo "$json" | jq -r '.platform.python')
+  row "platform" "${sys_name} ${sys_release} (${sys_machine})" "$C_WHITE"
+  row "python"   "${py_ver}" "$C_WHITE"
+  echo
   echo "$json" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
