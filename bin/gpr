@@ -36,6 +36,8 @@ ${C_BOLD}COMMANDS${C_RESET}
   ${C_CYAN}lint${C_RESET}              warn about weak verifyCmds, dependency cycles
   ${C_CYAN}doctor${C_RESET}            check installed agents, python, git, jq
   ${C_CYAN}render${C_RESET}            write a self-contained HTML view of the Plan
+  ${C_CYAN}commit-intent${C_RESET}     write a conventional-commits message for an intent
+  ${C_CYAN}pr-description${C_RESET}    write a PR description for the whole run
   ${C_CYAN}trace${C_RESET}             tail recent events
   ${C_CYAN}next-intent${C_RESET}       (skill) pick + mark in-progress; print the intent
   ${C_CYAN}render-prompt${C_RESET}     (skill) print the rendered continuation prompt
@@ -288,6 +290,13 @@ case "$cmd" in
   lint)              cmd_lint "$@" ;;
   doctor)            cmd_doctor "$@" ;;
   render)            python3 -m lib.cli render "$@" ;;
+  commit-intent)
+    # shellcheck source=lib/commit.sh
+    source "$GPR_LIB/commit.sh"
+    cmd_commit_intent "$@" ;;
+  pr-description)
+    source "$GPR_LIB/commit.sh"
+    cmd_pr_description "$@" ;;
   trace)             cmd_trace "$@" ;;
   next-intent)       cmd_next_intent "$@" ;;
   render-prompt)     cmd_render_prompt "$@" ;;

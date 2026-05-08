@@ -425,6 +425,81 @@ def cmd_ingest_reverse_verdict(args: argparse.Namespace) -> int:
     return 0 if verdict["clean"] else 2
 
 
+def cmd_render_commit_prompt(args: argparse.Namespace) -> int:
+    from . import render as render_mod
+    root = _project_root()
+    plan = plan_mod.load(root)
+    intent = plan_mod.find_intent(plan, args.intent)
+    if intent is None:
+        print(f"error: unknown intent {args.intent}", file=sys.stderr)
+        return 1
+    audit_detail: list[dict[str, Any]] = []
+    if args.audit_json and Path(args.audit_json).exists():
+        try:
+            saved = json.loads(Path(args.audit_json).read_text())
+            audit_detail = saved.get("audit", {}).get("details", []) or saved.get("details", [])
+        except json.JSONDecodeError:
+            pass
+    diff = _git_diff(root, args.diff_base)
+    sys.stdout.write(render_mod.commit_message_prompt(intent, audit_detail, diff))
+    return 0
+
+
+def cmd_ingest_commit(args: argparse.Namespace) -> int:
+    text = sys.stdin.read() if args.stdin else (args.text or "")
+    try:
+        msg = signal_mod.parse_commit_message(text)
+    except signal_mod.SignalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        _print_json(msg)
+        return 0
+    print(msg["title"])
+    if msg["body"]:
+        print()
+        print(msg["body"])
+    if args.apply:
+        import subprocess
+        full = msg["title"] + ("\n\n" + msg["body"] if msg["body"] else "")
+        proc = subprocess.run(
+            ["git", "commit", "-m", full],
+            cwd=str(_project_root()),
+        )
+        return proc.returncode
+    return 0
+
+
+def cmd_render_pr_prompt(args: argparse.Namespace) -> int:
+    from . import render as render_mod
+    root = _project_root()
+    plan = plan_mod.load(root)
+    diff = _git_diff(root, args.diff_base)
+    events = events_mod.tail(root, n=50)
+    sys.stdout.write(render_mod.pr_description_prompt(plan, diff, events))
+    return 0
+
+
+def cmd_ingest_pr(args: argparse.Namespace) -> int:
+    text = sys.stdin.read() if args.stdin else (args.text or "")
+    try:
+        pr = signal_mod.parse_pr_description(text)
+    except signal_mod.SignalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        _print_json(pr)
+        return 0
+    print(pr["title"])
+    print()
+    print(pr["body"])
+    if args.output:
+        Path(args.output).write_text(
+            f"{pr['title']}\n\n{pr['body']}\n"
+        )
+    return 0
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     from . import html_view
     root = _project_root()
@@ -623,6 +698,32 @@ def main() -> int:
     pirv.add_argument("--text", default=None)
     pirv.add_argument("--json", action="store_true")
     pirv.set_defaults(func=cmd_ingest_reverse_verdict)
+
+    pcp = sub.add_parser("render-commit-prompt")
+    pcp.add_argument("--intent", required=True)
+    pcp.add_argument("--audit-json", default=None)
+    pcp.add_argument("--diff-base", default="HEAD")
+    pcp.set_defaults(func=cmd_render_commit_prompt)
+
+    pic = sub.add_parser("ingest-commit")
+    pic.add_argument("--stdin", action="store_true")
+    pic.add_argument("--text", default=None)
+    pic.add_argument("--apply", action="store_true",
+                     help="Run git commit with the parsed message")
+    pic.add_argument("--json", action="store_true")
+    pic.set_defaults(func=cmd_ingest_commit)
+
+    pprp = sub.add_parser("render-pr-prompt")
+    pprp.add_argument("--diff-base", default="HEAD")
+    pprp.set_defaults(func=cmd_render_pr_prompt)
+
+    pipr = sub.add_parser("ingest-pr")
+    pipr.add_argument("--stdin", action="store_true")
+    pipr.add_argument("--text", default=None)
+    pipr.add_argument("--output", default=None,
+                      help="Write the PR body to a file")
+    pipr.add_argument("--json", action="store_true")
+    pipr.set_defaults(func=cmd_ingest_pr)
 
     prn = sub.add_parser("render")
     prn.add_argument("--output", default=None,

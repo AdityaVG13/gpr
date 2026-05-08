@@ -178,6 +178,46 @@ def audit_check_prompt(
     return base + "\n\n## Inputs (this iteration)\n\n" + "\n".join(proofs_lines)
 
 
+def commit_message_prompt(
+    intent: dict[str, Any], audit_detail: list[dict[str, Any]], diff_text: str
+) -> str:
+    base = _read_prompt_file("commit_message.md")
+    parts = [
+        f"Intent: {intent['id']} — {intent['title']}",
+        f"Status: {intent['status']}",
+        "Checks (with audit outcome):",
+    ]
+    for d in audit_detail:
+        parts.append(f"  - {d['checkId']}: {d['result']}")
+    parts.append("\nDiff to summarise:\n```\n" + diff_text[-12000:] + "\n```")
+    return base + "\n\n## Inputs\n\n" + "\n".join(parts)
+
+
+def pr_description_prompt(plan: dict[str, Any], diff_text: str, events_tail: list) -> str:
+    base = _read_prompt_file("pr_description.md")
+    intents = []
+    for it in plan["intents"]:
+        intents.append(f"- {it['id']} ({it['status']}): {it['title']}")
+        for ch in it["checks"]:
+            mark = "+" if any(p.get("checkId") == ch["id"] for p in it.get("proofs", [])) else "-"
+            cmd = ch.get("verifyCmd") or "(manual)"
+            intents.append(f"    [{mark}] {ch['id']}: {ch['description']}  | {cmd}")
+    events_block = "\n".join(
+        f"  - {e.get('kind')}: {e}" for e in events_tail[-20:]
+    )
+    return (
+        base
+        + "\n\n## Run summary\n\n"
+        + f"Goal: {plan['goal']}\n\nIntents:\n"
+        + "\n".join(intents)
+        + "\n\nRecent events:\n"
+        + events_block
+        + "\n\n## Cumulative diff\n\n```\n"
+        + diff_text[-16000:]
+        + "\n```"
+    )
+
+
 def reverse_audit_prompt(plan: dict[str, Any], diff_text: str, gpr_dir: Path) -> str:
     """Render reverse-audit prompt — invoked at end-of-run before
     declaring achieved, to catch spec drift and goal gaps."""

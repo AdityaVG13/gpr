@@ -67,6 +67,36 @@ def test_reverse_audit_regressions():
     assert v["regressions"][0]["intent"] == "I1"
 
 
+def test_parse_commit_message():
+    text = """\
+preamble
+---gpr-commit---
+{"title":"feat(audit): wire Layer-2 verifier","body":"Brief why.\\n\\n## Changes\\n- Bullet one\\n- Bullet two"}
+---end---
+"""
+    m = sm.parse_commit_message(text)
+    assert m["title"].startswith("feat(audit)")
+    assert "Brief why" in m["body"]
+
+
+def test_parse_commit_rejects_overlong_title():
+    long = "x" * 200
+    text = f"---gpr-commit---\n{{\"title\":\"{long}\",\"body\":\"\"}}\n---end---\n"
+    with pytest.raises(sm.SignalError, match="too long"):
+        sm.parse_commit_message(text)
+
+
+def test_parse_pr_description():
+    text = """\
+---gpr-pr---
+{"title":"feat(api): add auth + crud endpoints","body":"## Summary\\n\\nAuth and CRUD shipped.\\n\\n## Changes\\n\\n- JWT issuance\\n- /todos resource"}
+---end---
+"""
+    p = sm.parse_pr_description(text)
+    assert p["title"].startswith("feat(api)")
+    assert "## Summary" in p["body"]
+
+
 def test_reverse_audit_goal_gaps():
     text = """\
 ---gpr-reverse-audit---

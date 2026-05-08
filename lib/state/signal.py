@@ -165,6 +165,52 @@ def parse_audit_verdict(text: str) -> dict[str, Any]:
     }
 
 
+def parse_commit_message(text: str) -> dict[str, str]:
+    pattern = re.compile(
+        r"^[ \t]*---gpr-commit---[ \t]*\n(.*?)\n[ \t]*---end---[ \t]*$",
+        re.MULTILINE | re.DOTALL,
+    )
+    matches = list(pattern.finditer(text))
+    if not matches:
+        raise SignalError("no ---gpr-commit--- block found")
+    raw = matches[-1].group(1).strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SignalError(f"invalid JSON in commit block: {exc}") from exc
+    title = data.get("title", "")
+    body = data.get("body", "")
+    if not title or not isinstance(title, str):
+        raise SignalError("commit.title required")
+    if len(title) > 100:
+        raise SignalError(f"commit.title too long ({len(title)} chars; cap 100)")
+    if not isinstance(body, str):
+        raise SignalError("commit.body must be a string")
+    return {"title": title, "body": body}
+
+
+def parse_pr_description(text: str) -> dict[str, str]:
+    pattern = re.compile(
+        r"^[ \t]*---gpr-pr---[ \t]*\n(.*?)\n[ \t]*---end---[ \t]*$",
+        re.MULTILINE | re.DOTALL,
+    )
+    matches = list(pattern.finditer(text))
+    if not matches:
+        raise SignalError("no ---gpr-pr--- block found")
+    raw = matches[-1].group(1).strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SignalError(f"invalid JSON in pr block: {exc}") from exc
+    title = data.get("title", "")
+    body = data.get("body", "")
+    if not title or not isinstance(title, str):
+        raise SignalError("pr.title required")
+    if not isinstance(body, str):
+        raise SignalError("pr.body must be a string")
+    return {"title": title, "body": body}
+
+
 def parse_reverse_audit(text: str) -> dict[str, Any]:
     """Parse a reverse-audit verdict block."""
     matches = list(_REVERSE_PATTERN.finditer(text))
