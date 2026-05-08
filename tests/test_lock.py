@@ -8,6 +8,8 @@ import pytest
 
 from lib.state.lock import LockTimeout, file_lock
 
+_IS_WINDOWS = os.name == "nt"
+
 
 def test_acquire_release(tmp_project):
     lp = tmp_project / "x.lock"
@@ -46,6 +48,12 @@ def test_concurrent_acquire_blocks(tmp_project):
     proc.wait(timeout=3)
 
 
+@pytest.mark.skipif(
+    _IS_WINDOWS,
+    reason="Windows msvcrt.locking is mandatory — readers blocked while held. "
+    "On POSIX fcntl.flock is advisory; PID record is readable. "
+    "Behaviour difference is by design.",
+)
 def test_self_pid_recorded(tmp_project):
     lp = tmp_project / "x.lock"
     with file_lock(lp, timeout=2):
