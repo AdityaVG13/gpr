@@ -2,7 +2,7 @@
 
 ## v0.1.4 — 2026-05-08
 
-Public-release prep: cross-platform support, community files, dependency automation.
+Cross-platform support, community files, dependency automation.
 
 - Linux + Windows now first-class platforms. Desktop notifications add a Windows toast path via `powershell.exe` (System.Windows.Forms balloon); WSL detected via `/proc/version` and falls through to `powershell.exe` if `notify-send` is missing. macOS + Linux unchanged.
 - `gpr doctor` now prints platform info (system / release / machine / Python version) before the dependency check matrix.
