@@ -35,6 +35,7 @@ ${C_BOLD}COMMANDS${C_RESET}
   ${C_CYAN}audit${C_RESET}             re-run verifyCmds (no looping)
   ${C_CYAN}lint${C_RESET}              warn about weak verifyCmds, dependency cycles
   ${C_CYAN}doctor${C_RESET}            check installed agents, python, git, jq
+  ${C_CYAN}render${C_RESET}            write a self-contained HTML view of the Plan
   ${C_CYAN}trace${C_RESET}             tail recent events
   ${C_CYAN}next-intent${C_RESET}       (skill) pick + mark in-progress; print the intent
   ${C_CYAN}render-prompt${C_RESET}     (skill) print the rendered continuation prompt
@@ -286,6 +287,7 @@ case "$cmd" in
   audit)             cmd_audit "$@" ;;
   lint)              cmd_lint "$@" ;;
   doctor)            cmd_doctor "$@" ;;
+  render)            python3 -m lib.cli render "$@" ;;
   trace)             cmd_trace "$@" ;;
   next-intent)       cmd_next_intent "$@" ;;
   render-prompt)     cmd_render_prompt "$@" ;;

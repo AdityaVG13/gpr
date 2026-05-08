@@ -425,6 +425,27 @@ def cmd_ingest_reverse_verdict(args: argparse.Namespace) -> int:
     return 0 if verdict["clean"] else 2
 
 
+def cmd_render(args: argparse.Namespace) -> int:
+    from . import html_view
+    root = _project_root()
+    plan = plan_mod.load(root)
+    state = budget_mod.load(root)
+    out_path = Path(args.output) if args.output else (_gpr_dir() / "Plan.html")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(html_view.render(plan, state, _gpr_dir(), root))
+    if args.json:
+        _print_json({"ok": True, "path": str(out_path)})
+    else:
+        print(out_path)
+    if args.open:
+        import shutil
+        opener = shutil.which("open") or shutil.which("xdg-open")
+        if opener:
+            import subprocess
+            subprocess.Popen([opener, str(out_path)])
+    return 0
+
+
 def cmd_revert_intent(args: argparse.Namespace) -> int:
     root = _project_root()
     with file_lock(plan_mod.lock_path(root)):
@@ -602,6 +623,14 @@ def main() -> int:
     pirv.add_argument("--text", default=None)
     pirv.add_argument("--json", action="store_true")
     pirv.set_defaults(func=cmd_ingest_reverse_verdict)
+
+    prn = sub.add_parser("render")
+    prn.add_argument("--output", default=None,
+                     help="Output path (default: .gpr/Plan.html)")
+    prn.add_argument("--open", action="store_true",
+                     help="Open the rendered file in the default browser")
+    prn.add_argument("--json", action="store_true")
+    prn.set_defaults(func=cmd_render)
 
     pri = sub.add_parser("revert-intent")
     pri.add_argument("--intent", required=True)
