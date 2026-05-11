@@ -23,6 +23,11 @@ mkdir -p "$GRILL_TARGET"
 cp "$INSTALL_SRC/skill/gpr-grill/SKILL.md" "$GRILL_TARGET/SKILL.md"
 log_ok "skill: $GRILL_TARGET/SKILL.md"
 
+SETTINGS_TARGET="${HOME}/.claude/skills/gpr-settings"
+mkdir -p "$SETTINGS_TARGET"
+cp "$INSTALL_SRC/skill/gpr-settings/SKILL.md" "$SETTINGS_TARGET/SKILL.md"
+log_ok "skill: $SETTINGS_TARGET/SKILL.md"
+
 for f in "$INSTALL_SRC"/commands/*.md; do
   cp "$f" "$TARGET_CMD_DIR/"
   log_ok "command: $TARGET_CMD_DIR/$(basename "$f")"
@@ -38,6 +43,7 @@ fi
 hr
 log_ok "installed"
 log_info "from any Claude Code session in a gpr-initialized project, type:"
-printf '    %s/gpr%s            run one iteration\n' "$C_BOLD" "$C_RESET"
-printf '    %s/gpr-status%s     show progress\n' "$C_BOLD" "$C_RESET"
-printf '    %s/gpr-steer%s ...  write a human steer\n' "$C_BOLD" "$C_RESET"
+printf '    %s/gpr%s             run one iteration\n' "$C_BOLD" "$C_RESET"
+printf '    %s/gpr-status%s      show progress\n' "$C_BOLD" "$C_RESET"
+printf '    %s/gpr-steer%s ...   write a human steer\n' "$C_BOLD" "$C_RESET"
+printf '    %s/gpr-settings%s    browse/edit gpr config\n' "$C_BOLD" "$C_RESET"

@@ -8,6 +8,7 @@ A CLI that drives a coding agent through an audit-verified Plan.
 [![Tests](https://img.shields.io/badge/tests-76_passing-emerald?style=flat-square)](tests/)
 [![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![Platforms](https://img.shields.io/badge/platforms-macOS_%7C_Linux_%7C_Windows-9cf?style=flat-square)](#quickstart)
 [![Ko-fi](https://img.shields.io/badge/ko--fi-support-FF5E5B?style=flat-square&logo=kofi&logoColor=white)](https://ko-fi.com/adityavg13)
 
 ![demo](docs/demo.gif)
@@ -19,6 +20,8 @@ What test-driven development is to code, gpr is to LLM coding agents: every clai
 ---
 
 ## Quickstart
+
+**Runs on macOS, Linux, and Windows.** CI exercises all three on every PR (`ubuntu-latest`, `macos-latest`, `windows-latest`). The shell scripts target bash; on Windows that means **WSL** or **Git Bash** — native `cmd` / PowerShell is not supported.
 
 ```bash
 git clone https://github.com/AdityaVG13/GPR ~/.local/share/gpr
@@ -35,11 +38,12 @@ gpr run --agent claude --max-cost-usd 5
 
 **Linux** — works as shown. `apt install jq` / `dnf install jq` / `pacman -S jq` if missing.
 
-**Windows** — three paths:
+**Windows** — two supported paths:
 
 1. **WSL** (recommended). Inside `wsl`, follow the Linux steps. `claude` CLI runs inside WSL and uses your subscription session normally.
 2. **Git Bash** (MinGW). The same shell commands work; `~/.local/share/gpr` resolves under your Windows user profile. Install [Git for Windows](https://git-scm.com/download/win) for bash + jq, then run the quickstart in Git Bash.
-3. **Native PowerShell / cmd** is not supported. Use WSL or Git Bash.
+
+Native PowerShell / cmd is not supported — gpr's loop driver is bash. See [issue tracker](https://github.com/AdityaVG13/GPR/issues) if you want native PowerShell support.
 
 Desktop notifications use `osascript` on macOS, `notify-send` on Linux, and `powershell.exe` toast on Windows / WSL. Set `GPR_NO_NOTIFY=1` to disable.
 
@@ -51,7 +55,7 @@ Or, if you're already in a Claude Code TUI session inside a project:
 /gpr Build a TODO REST API with auth
 ```
 
-That bootstraps the Plan via an interactive interview (`gpr-grill`), runs the loop one iteration at a time, and yields back to you between rounds. Type `/gpr` again to advance, `/gpr-steer ...` to redirect.
+That bootstraps the Plan via an interactive interview (`gpr-grill`), runs the loop one iteration at a time, and yields back to you between rounds. Type `/gpr` again to advance, `/gpr-steer ...` to redirect, `/gpr-status` to see progress, `/gpr-settings` to browse or edit gpr's config (run defaults, viewer style, env-var hints).
 
 > **Auth.** gpr never handles credentials. It spawns whichever agent CLI you point it at (`claude`, `codex`, `opencode`, `gemini`) as a subprocess; that CLI uses its own auth. So `claude` running on your Claude Code subscription session works exactly as well as one configured with `ANTHROPIC_API_KEY`.
 
