@@ -1,6 +1,6 @@
 [project]
 name = "goal-ratchet"
-version = "0.1.6"
+version = "0.1.7"
 description = "Goal-driven, audit-verified iterative agent loop"
 readme = "README.md"
 requires-python = ">=3.10"

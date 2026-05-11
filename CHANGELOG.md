@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.7 — 2026-05-11
+
+Skill UX polish + discoverability. No core loop changes.
+
+- **`/gpr loop` — hand off to the autonomous `gpr run` CLI driver.** The single-iteration `/gpr` flow stays the default, but `/gpr loop` (also `/gpr run`, `/gpr auto`) routes to `gpr run` instead of asking Claude to self-drive iterations. Rationale: model-driven loops drift across agents (Claude / Codex / OpenCode / Gemini); the CLI binary is identical for every agent and never skips audit, mis-picks intents, or stalls. The skill surfaces budget caps and requires explicit yes before launch. Trailing words on the slash command (`/gpr loop --max-cost-usd 10 --agent codex`) forward to `gpr run` flags.
+- **Clickable PRD link after `/gpr-grill`.** Once Plan.json is written, the grill unconditionally runs `gpr render` and prints the absolute `.gpr/Plan.html` path on its own line as `file:///…`. Modern terminals (iTerm2, Warp, VS Code, Ghostty, Kitty) auto-linkify bare `file://` URLs — markdown link syntax intentionally avoided because some terminals don't linkify it. Replaces the previous "want me to run `gpr render --open`?" prompt.
+- **New `/gpr-settings` slash command + skill.** Wraps `gpr config` deterministically. Surfaces the three settings layers users often conflate: `gpr config` keys (run defaults, viewer style/theme) across user/project scope; runtime env vars (`GPR_AGENT_EXTRA_ARGS`, `GPR_NO_NOTIFY`, `GPR_BUDGET_MAX_COST_USD`, `GPR_HOME`); and `.gpr/Plan.json` fields (budget, qualityGates, persona — pointed at `/gpr-grill`, not edited from this skill). `$ARGUMENTS` routing: empty → menu; `list` / `show` → dump and exit; `<key>` → jump to set; `reset` → destructive-reset branch with explicit confirm; `env` → env-var examples. Validates enum values against `gpr config keys` before calling set so the user sees a useful error.
+- **README discoverability bump.** Cross-platform support was already shipping (CI exercises ubuntu / macos / windows on every PR since v0.1.4) but was buried in a `<details>` block. New **Platforms** badge in the header row; one-line "Runs on macOS, Linux, and Windows" sentence above the quickstart so it's visible without a click; Windows section trimmed to the two supported paths (WSL + Git Bash) with native PowerShell pointed at the issue tracker. `/gpr-settings` added to the slash-commands line.
+- **CI: `actions/checkout` bumped v4 → v6** (Dependabot). No workflow-shape changes.
+
 ## v0.1.6 — 2026-05-08
 
 Loop ingest fix.
