@@ -127,6 +127,19 @@ There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up)
 | `gpr pr-description` | Synthesise the whole run into a PR body |
 | `gpr confidence-audit` | Scrutinise the Plan for loopholes; loop until confident |
 
+### Claude Code slash commands
+
+Installed by `install/install.sh` into `~/.claude/`. Available in any Claude Code TUI session running inside a gpr-initialised project.
+
+| Command | What it does |
+|---|---|
+| `/gpr` | Run one iteration of the loop in the current Claude session, then yield. With `<goal>` and no existing Plan, bootstraps via the grill. |
+| `/gpr loop` | Hand off to the autonomous `gpr run` CLI driver — runs until done / blocked / budget. Deterministic across agents; doesn't drift like model-driven self-loops. Trailing words forward as `gpr run` flags (e.g. `/gpr loop --max-cost-usd 10 --agent codex`). |
+| `/gpr-grill` | Nine-beat interactive Plan interview. Auto-renders `.gpr/Plan.html` and prints a clickable `file://` link at the end. |
+| `/gpr-status` | Show plan progress, next intent, budget burn. |
+| `/gpr-steer <message>` | Write a human steer the next iteration will read first. `--abort` to halt. |
+| `/gpr-settings` | Browse and edit gpr config — run defaults, viewer style, env-var hints. Wraps `gpr config` deterministically; never edits Plan.json. |
+
 <p align="center">
   <img src="docs/status.png" alt="gpr status" width="640">
 </p>
@@ -178,14 +191,15 @@ The viewer is a work in progress. Six concept demos for patterns we considered l
 
 ---
 
-## Two ways to invoke
+## Three ways to invoke
 
 | Mode | What it is | Best for |
 |---|---|---|
 | **CLI** (`gpr run`) | External process. gpr spawns the agent as a subprocess each round. | Autonomous overnight runs, headless servers, CI |
-| **Claude skill** (`/gpr`) | One iteration runs inside your current Claude TUI session. | You're already in Claude and want to ratchet without leaving |
+| **Claude skill — step** (`/gpr`) | One iteration runs inside your current Claude TUI session, then yields. | You're already in Claude and want to ratchet without leaving |
+| **Claude skill — loop** (`/gpr loop`) | Hands off to `gpr run` from inside the TUI. Same deterministic loop as the CLI; the Claude session monitors progress. | You want hands-off completion but want to stay in Claude to watch / steer |
 
-An MCP server (Mode C, accessible from Codex / Cursor / any MCP client) is on the roadmap once usage settles.
+An MCP server (Mode D, accessible from Codex / Cursor / any MCP client) is on the roadmap once usage settles.
 
 ---
 
