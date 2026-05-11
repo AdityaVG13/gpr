@@ -176,11 +176,25 @@ Then run `gpr lint` via Bash for the deterministic warnings (weak verifyCmds, un
 
 Then run `gpr confidence-audit` via Bash for the model-driven scrutiny. Walk the user through every loophole one at a time. Show the proposed Plan.json edit for each loophole and ask before applying. Re-run the audit. Repeat until `confident: true` or the user has waived all remaining loopholes into Pinned.md.
 
-Finally: ask the user whether to open the rendered Plan in the browser before starting the loop:
+Finally: render the Plan as HTML and surface a clickable link the user can open in one click. Do not gate this behind a question — render unconditionally so the link is always there.
 
-> "Plan written. Open the HTML view in your browser to review? (`gpr render --open`)"
+1. Run `gpr render` via Bash. This writes `.gpr/Plan.html` next to the Plan. Do **not** pass `--open` here — let the user choose to click.
+2. Compute the absolute path with Bash: `realpath .gpr/Plan.html` (fallback `python3 -c "import pathlib;print(pathlib.Path('.gpr/Plan.html').resolve())"` if `realpath` is missing).
+3. Print the link on its own line, prefixed with `file://`, so terminals auto-linkify it:
 
-If yes, run `gpr render --open` via Bash. Then print a one-line summary and ask whether to start the loop now (`/gpr` to begin first iteration) or to review the Plan first.
+   ```
+   Plan ready: file:///abs/path/to/.gpr/Plan.html
+   ```
+
+   Most modern terminals (iTerm2, Warp, VS Code, Ghostty, Kitty) make `file://` URLs clickable. Keep the URL on its own line — do not wrap it in markdown link syntax, which some terminals will not linkify.
+
+4. Then ask the user how to proceed, offering both modes explicitly:
+
+   > "PRD ready. Open the link above to review, then choose:
+   > - `/gpr` — step through one iteration at a time (you stay in control).
+   > - `/gpr loop` — let me drive `gpr run` until done, blocked, or budget hits."
+
+If the user wants the plan opened in the browser immediately without clicking, run `gpr render --open` instead of plain `gpr render` at step 1 — but still print the file:// link so they can reopen later.
 
 ## What this skill is not
 

@@ -1,11 +1,20 @@
 ---
 name: gpr
-description: Run one iteration of the gpr (Goal-driven PRD Ratchet) audit-verified loop in the CURRENT Claude session. Trigger when user types /gpr, /gpr next, /gpr ratchet, "run gpr iteration", or asks to drive an existing .gpr/Plan.json toward done from inside Claude. Do NOT trigger if .gpr/Plan.json does not exist — instruct the user to run `gpr init --objective "..."` first. Do NOT loop; one iteration per invocation, then yield.
+description: Run one iteration of the gpr (Goal-driven PRD Ratchet) audit-verified loop in the CURRENT Claude session, OR hand the loop off to the `gpr run` CLI driver via `/gpr loop`. Trigger when user types /gpr, /gpr next, /gpr ratchet, /gpr loop, /gpr run, "run gpr iteration", "run the loop", or asks to drive an existing .gpr/Plan.json toward done. Do NOT trigger if .gpr/Plan.json does not exist — instruct the user to run `gpr init --objective "..."` (or `/gpr-grill`) first. Single-iteration is the default; only the explicit `loop`/`run` subform delegates to the CLI driver.
 ---
 
-# gpr — one iteration in current session
+# gpr — one iteration in current session (default) or CLI-driven loop
 
 You are executing **exactly one** iteration of a gpr loop. The gpr CLI is the source of truth for state; you are the worker. After this iteration finishes, yield control to the user — do not auto-continue.
+
+## Routing — single iteration vs. autonomous loop
+
+Inspect the invocation arguments before doing anything else:
+
+- `/gpr`, `/gpr next`, `/gpr ratchet` (no second word, or `next`/`ratchet`) → **single-iteration mode**. Continue to "Preflight" below. This is the default.
+- `/gpr loop`, `/gpr run`, `/gpr auto`, or user phrases like "run the loop", "run gpr until done" → **autonomous-loop mode**. Jump to the "Autonomous loop" section at the bottom of this file and do NOT execute the six single-iteration steps.
+
+If unsure, ask the user once: "Single iteration (`/gpr`) or hands-off loop (`/gpr loop`)?" Default to single-iteration if the user does not answer.
 
 ## Preflight (run once, fail fast)
 
@@ -82,7 +91,90 @@ Then run `gpr status` to summarize progress, and yield.
 
 ## Hard rules
 
-- Exactly **one** iteration per `/gpr` invocation. Do not call `gpr next-intent` twice.
+- Exactly **one** iteration per `/gpr` invocation (default mode). Do not call `gpr next-intent` twice.
 - Do not modify `.gpr/Plan.json` directly. Use `gpr` subcommands.
 - Do not skip the audit by editing the plan to mark an intent done. The audit is the contract.
 - If you are uncertain whether the intent is done, emit `progress`, not `done`. The cost of a wasted iteration is small; the cost of a falsely-done intent is large (regressions land in `done` proofs).
+
+## Autonomous loop — `/gpr loop`
+
+Use this branch only when the invocation matched `/gpr loop`, `/gpr run`, `/gpr auto`, or an equivalent user phrase. The goal: hand off to the `gpr run` CLI driver, which is deterministic across agents (Claude, Codex, OpenCode, Gemini) and immune to per-model loop drift. You do NOT drive iterations yourself in this mode.
+
+### Why the CLI driver, not a self-driven loop
+
+Model-driven loops drift — different agents interpret "keep going" differently and may skip the audit, re-pick the same intent, or stall. `gpr run` is a single binary that:
+
+- picks the next intent with `gpr next-intent`,
+- spawns the build agent with the rendered prompt,
+- parses the signal block,
+- runs Layer-1 audit,
+- persists state,
+- repeats until done / blocked / budget-cap / max-iters.
+
+That loop is identical for every agent. Prefer it over driving iterations from inside Claude.
+
+### Preflight (loop mode)
+
+1. Run `gpr doctor` via Bash. Fail fast if `gpr` is missing or `.gpr/Plan.json` is absent (in that case tell the user to run `/gpr-grill` first).
+2. Render the Plan and surface the clickable link so the user can monitor progress while the loop runs:
+
+   ```bash
+   gpr render
+   realpath .gpr/Plan.html
+   ```
+
+   Print `file:///abs/path/to/.gpr/Plan.html` on its own line so the terminal auto-linkifies it. Suggest the user open it in a browser — `gpr run` updates Plan.json after every iteration, and the user can re-render or pass `--watch` for live updates.
+
+3. Read the Plan budget block (`gpr get budget.maxCostUsd`, `gpr get budget.tokens`, `gpr get budget.wallClockSeconds`) and surface the caps to the user. The loop soft-stops at 95% of whichever hits first.
+
+### Confirm before launching
+
+Looping spends real budget. Before running `gpr run`, show the user:
+
+- the current intent count and how many are still open (`gpr status`),
+- the budget caps,
+- the agent that will be used (default `claude`, or whatever the user names).
+
+Then ask: "Launch `gpr run --agent <X> --max-cost-usd <Y>`? This drives iterations until done, blocked, or budget hits."
+
+Only proceed on explicit yes.
+
+### Launch
+
+Run the CLI driver via Bash. Sensible default:
+
+```bash
+gpr run --agent claude
+```
+
+Override flags only when the user asks:
+
+- `--agent codex|opencode|gemini|echo` to switch agent.
+- `--model claude-opus-4-7` to pin a specific model.
+- `--max-iters N` to cap iterations.
+- `--max-cost-usd USD` to cap spend (overrides Plan.budget for this run).
+- `--deep-audit` to add Layer-2 model-driven audit on top of Layer-1 verifyCmds.
+
+If the user has MCP servers, hook configs, or allowed-tools lists they want the spawned agent to inherit, set `GPR_AGENT_EXTRA_ARGS` first. Example:
+
+```bash
+GPR_AGENT_EXTRA_ARGS='--allowedTools "Bash(rtk *)"' gpr run --agent claude
+```
+
+`gpr run` streams progress to stdout and re-renders `.gpr/Plan.html` between iterations. The user can refresh the open browser tab to watch.
+
+### After the loop returns
+
+`gpr run` exits with one of:
+
+- **all intents done** — run `gpr status` and `gpr pr-description` and report.
+- **blocked** — print the blocking reason, point at `.gpr/errors.log` and `.gpr/Steer.md`, and suggest `/gpr-steer "..."` to redirect.
+- **budget hit** — report which cap tripped; ask the user whether to bump it and resume with another `/gpr loop`.
+
+Do NOT silently re-invoke `gpr run` after it exits. The loop has terminated; yield to the user.
+
+### Hard rules (loop mode)
+
+- Never bypass `gpr run` by writing your own iteration loop in Bash (`while true; do gpr next-intent; done` etc.). The CLI's signal parsing, audit, and lock handling are non-trivial.
+- Never bump budget caps without the user's explicit yes.
+- Never run `gpr run` if `.gpr/Plan.json` has not passed `gpr confidence-audit`. If the Plan is unaudited, recommend `/gpr-grill` first.
