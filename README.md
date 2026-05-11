@@ -55,7 +55,13 @@ Or, if you're already in a Claude Code TUI session inside a project:
 /gpr Build a TODO REST API with auth
 ```
 
-That bootstraps the Plan via an interactive interview (`gpr-grill`), runs the loop one iteration at a time, and yields back to you between rounds. Type `/gpr` again to advance, `/gpr-steer ...` to redirect, `/gpr-status` to see progress, `/gpr-settings` to browse or edit gpr's config (run defaults, viewer style, env-var hints).
+That bootstraps the Plan via an interactive interview (`gpr-grill`), runs the loop one iteration at a time, and yields back to you between rounds. Then:
+
+- `/gpr` — advance one more iteration
+- `/gpr loop` — hand off to the autonomous `gpr run` driver (deterministic, doesn't drift like model-driven self-loops); add `gpr run` flags after, e.g. `/gpr loop --max-cost-usd 10`
+- `/gpr-steer <message>` — redirect; the next iteration reads `.gpr/Steer.md` first
+- `/gpr-status` — show progress, next intent, budget burn
+- `/gpr-settings` — browse or edit run defaults, viewer style, env-var hints
 
 > **Auth.** gpr never handles credentials. It spawns whichever agent CLI you point it at (`claude`, `codex`, `opencode`, `gemini`) as a subprocess; that CLI uses its own auth. So `claude` running on your Claude Code subscription session works exactly as well as one configured with `ANTHROPIC_API_KEY`.
 
@@ -229,10 +235,12 @@ The confidence audit is the safety net. Before the loop runs, `gpr confidence-au
 
 ## Configuration
 
+Three layers, in order of precedence: env vars > `.gpr/viewer-config.json` (project) > `~/.config/gpr/config.json` (user) > built-in defaults. Use `gpr config` from the shell, or `/gpr-settings` from a Claude Code session for an interactive editor that wraps `gpr config` and surfaces the env-var layer alongside.
+
 <details>
 <summary>All config keys (defaults, scopes)</summary>
 
-User-global config lives at `~/.config/gpr/config.json`. Per-project overrides at `.gpr/viewer-config.json`. Environment variables (`GPR_VIEWER_STYLE=...`) trump both.
+User-global config lives at `~/.config/gpr/config.json`. Per-project overrides at `.gpr/viewer-config.json` (despite the name, covers `run.*` keys too). Environment variables (`GPR_VIEWER_STYLE=...`) trump both.
 
 | Key | Default | Notes |
 |---|---|---|

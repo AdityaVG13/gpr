@@ -8,8 +8,8 @@ description: Interactive editor for gpr config — run defaults (agent, model, m
 Three things live under "gpr settings", and the user can confuse them. Surface all three, then drill into whichever the user picks:
 
 1. **`gpr config`** — defaults that apply across runs. Two scopes:
-   - `user` — `~/.config/gpr/config.toml`. Applies to every project.
-   - `project` — `.gpr/config.toml`. Overrides user scope for this repo only.
+   - `user` — `~/.config/gpr/config.json`. Applies to every project.
+   - `project` — `.gpr/viewer-config.json` (despite the name, covers `run.*` keys too). Overrides user scope for this repo only.
 2. **Env vars** — runtime overrides. Set in the shell that launches `gpr run`. Highest precedence.
 3. **`.gpr/Plan.json`** — per-project Plan fields (`budget`, `qualityGates`, `persona`). Edit via `/gpr-grill` (revise mode) or your `$EDITOR`. **This skill does NOT edit Plan.json** — that's grill territory.
 
@@ -109,7 +109,7 @@ Then yield — env vars are set in the user's shell, not by us.
 
 ## Hard rules
 
-- Never edit `~/.config/gpr/config.toml` or `.gpr/config.toml` directly with `Write`. Always go through `gpr config set/unset/reset`.
+- Never edit `~/.config/gpr/config.json` or `.gpr/viewer-config.json` directly with `Write`. Always go through `gpr config set/unset/reset`.
 - Never edit `.gpr/Plan.json` from this skill. Direct the user to `/gpr-grill` or `$EDITOR`.
 - Validate enum values against `gpr config keys` output before calling `set` — a bad value will be rejected by the CLI but the user experience is cleaner if we catch it first.
 - Show the before/after for every change. The user should never have to run `gpr config get` themselves to confirm.
