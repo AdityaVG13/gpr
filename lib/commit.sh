@@ -19,6 +19,10 @@
 # Tokens before `--` are passed to the render command; tokens after
 # `--` are passed to the ingest command. The pipe between them is
 # always: render-stdout → agent_run → ingest-stdin.
+#
+# Threads ${GPR_PLAN:-default} into both the render and ingest calls so
+# every commit-intent / pr-description / confidence-audit invocation
+# targets the active plan.
 _run_prompt_channel() {
   local render_cmd="$1" ingest_cmd="$2" agent="$3" timeout_sec="$4"
   shift 4
@@ -38,14 +42,15 @@ _run_prompt_channel() {
   done
   # shellcheck source=lib/agents.sh
   source "$GPR_LIB/agents.sh"
+  local plan_slug="${GPR_PLAN:-default}"
   local prompt
-  prompt=$(python3 -m lib.cli "$render_cmd" "${render_args[@]}")
+  prompt=$(python3 -m lib.cli "$render_cmd" --plan "$plan_slug" "${render_args[@]}")
   local stream_log
   stream_log=$(mktemp)
   local out
   out=$(printf '%s' "$prompt" | agent_run "$agent" "$stream_log" "$timeout_sec")
   rm -f "$stream_log"
-  printf '%s' "$out" | python3 -m lib.cli "$ingest_cmd" --stdin "${ingest_args[@]}"
+  printf '%s' "$out" | python3 -m lib.cli "$ingest_cmd" --stdin --plan "$plan_slug" "${ingest_args[@]}"
 }
 
 # gpr commit-intent <ID> [--agent X] [--apply]
@@ -110,7 +115,7 @@ cmd_confidence_audit() {
     rec=$(printf '%s' "$verdict_json" | jq -r '.recommendation // "?"' 2>/dev/null || echo "?")
     log_warn "verdict: not confident (recommendation=$rec)"
     if [[ "$rec" == "rewrite_plan" ]]; then
-      log_warn "recommend full rewrite — see .gpr/Steer.md and rerun /gpr-grill"
+      log_warn "recommend full rewrite — see Steer.md (in active plan dir) and rerun /gpr-grill"
       return 3
     fi
     printf '%s' "$verdict_json" | python3 -c "

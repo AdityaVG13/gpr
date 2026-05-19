@@ -15,7 +15,7 @@ export PYTHONPATH="$GPR_HOME${PYTHONPATH:+:$PYTHONPATH}"
 # shellcheck source=lib/term.sh
 source "$GPR_LIB/term.sh"
 
-VERSION="0.1.7"
+VERSION="0.2.0"
 
 usage() {
   cat <<USAGE
@@ -28,16 +28,19 @@ ${C_BOLD}USAGE${C_RESET}
   gpr <command> [options]
 
 ${C_BOLD}COMMANDS${C_RESET}
-  ${C_CYAN}init${C_RESET}              create .gpr/Plan.json + Pinned.md + Spine.md
+  ${C_CYAN}init${C_RESET}              create .gpr/plans/<slug>/Plan.json + Pinned.md + Spine.md
   ${C_CYAN}run${C_RESET}               drive the loop until done / blocked / budget
   ${C_CYAN}status${C_RESET}            show plan progress, next intent, budget burn
-  ${C_CYAN}steer${C_RESET}             write a human interrupt to .gpr/Steer.md
+  ${C_CYAN}steer${C_RESET}             write a human interrupt to the plan's Steer.md
   ${C_CYAN}audit${C_RESET}             re-run verifyCmds (no looping)
   ${C_CYAN}lint${C_RESET}              warn about weak verifyCmds, dependency cycles
   ${C_CYAN}doctor${C_RESET}            check installed agents, python, git, jq
   ${C_CYAN}render${C_RESET}            write a self-contained HTML view of the Plan
   ${C_CYAN}config${C_RESET}            list / get / set viewer + run defaults
   ${C_CYAN}get${C_RESET}               print a Plan.json field by dotted path
+  ${C_CYAN}plan${C_RESET}              list / use / current / rm / rename plans
+  ${C_CYAN}import${C_RESET}            fold an external Plan into .gpr/plans/<slug>/
+  ${C_CYAN}agent${C_RESET}             list / show / add / rm agent adapters
   ${C_CYAN}commit-intent${C_RESET}     write a conventional-commits message for an intent
   ${C_CYAN}pr-description${C_RESET}    write a PR description for the whole run
   ${C_CYAN}confidence-audit${C_RESET}  scrutinise the Plan for loopholes; loop until 100% confident
@@ -46,11 +49,27 @@ ${C_BOLD}COMMANDS${C_RESET}
   ${C_CYAN}render-prompt${C_RESET}     (skill) print the rendered continuation prompt
   ${C_CYAN}ingest-signal${C_RESET}     (skill) parse a signal block, run audit, persist
 
+${C_BOLD}GLOBAL OPTIONS${C_RESET}
+  ${C_CYAN}--plan SLUG${C_RESET}       operate on a specific plan (default: \$GPR_PLAN or .gpr/active or "default")
+
 ${C_BOLD}EXAMPLES${C_RESET}
   ${C_GRAY}# scaffold and run autonomously${C_RESET}
   gpr init --objective "Build a TODO REST API with auth"
-  \$EDITOR .gpr/Plan.json
+  \$EDITOR .gpr/plans/default/Plan.json
   gpr run --agent claude --max-cost-usd 5
+
+  ${C_GRAY}# multiple plans in parallel${C_RESET}
+  gpr init --plan todo-api --objective "TODO REST API"
+  gpr init --plan auth --objective "OAuth2 flow"
+  gpr run --plan todo-api --agent claude &
+  gpr run --plan auth --agent codex &
+
+  ${C_GRAY}# fold an external Plan${C_RESET}
+  gpr import ~/Drafts/strategy.json --name strategy --activate
+
+  ${C_GRAY}# any CLI works (auto stdin-passthrough)${C_RESET}
+  gpr run --agent grok           ${C_GRAY}# just runs \`grok\` and pipes the prompt${C_RESET}
+  gpr run --agent custom --cmd "ollama run llama3"
 
   ${C_GRAY}# mid-run redirect${C_RESET}
   gpr steer "Switch from sqlite to postgres"
@@ -69,16 +88,17 @@ cmd_help() { usage; }
 cmd_version() { echo "gpr $VERSION"; }
 
 cmd_init() {
-  local objective="" project="" branch="" from="" force=""
+  local objective="" project="" branch="" from="" force="" plan=""
   while (( $# > 0 )); do
     case "$1" in
       --objective) objective="$2"; shift 2 ;;
       --project) project="$2"; shift 2 ;;
       --branch) branch="$2"; shift 2 ;;
       --from) from="$2"; shift 2 ;;
+      --plan) plan="$2"; shift 2 ;;
       --force) force="--force"; shift ;;
       -h|--help)
-        echo "gpr init --objective TEXT [--project NAME] [--branch X] [--from FILE] [--force]"
+        echo "gpr init --objective TEXT [--project NAME] [--branch X] [--from FILE] [--plan SLUG] [--force]"
         return 0 ;;
       *) log_fail "unknown arg: $1"; return 2 ;;
     esac
@@ -93,21 +113,28 @@ cmd_init() {
   [[ -n "$project" ]] && args+=(--project "$project")
   [[ -n "$branch" ]] && args+=(--branch "$branch")
   [[ -n "$from" ]] && args+=(--from "$from")
+  [[ -n "$plan" ]] && args+=(--plan "$plan")
   [[ -n "$force" ]] && args+=("$force")
-  python3 -m lib.cli init "${args[@]}" --json > /tmp/gpr-init-$$.json
-  log_ok "wrote .gpr/Plan.json"
-  log_info "next: edit .gpr/Plan.json to add intents and checks"
-  log_info "then: gpr run --agent claude"
-  rm -f /tmp/gpr-init-$$.json
+  local out
+  out=$(python3 -m lib.cli init "${args[@]}" --json)
+  local slug
+  slug=$(echo "$out" | python3 -c "import sys, json; print(json.load(sys.stdin).get('slug','default'))")
+  log_ok "wrote .gpr/plans/$slug/Plan.json"
+  log_info "next: edit .gpr/plans/$slug/Plan.json to add intents and checks"
+  log_info "then: gpr run --plan $slug --agent claude"
 }
 
 cmd_run() {
   local agent="claude" max_iters=50 iter_timeout=1800
-  local deep_audit="0" audit_agent="" model=""
+  local deep_audit="0" audit_agent="" model="" plan=""
+  local custom_cmd="" prompt_mode=""
   while (( $# > 0 )); do
     case "$1" in
       --agent) agent="$2"; shift 2 ;;
       --model) model="$2"; shift 2 ;;
+      --plan) plan="$2"; shift 2 ;;
+      --cmd) custom_cmd="$2"; shift 2 ;;
+      --prompt-mode) prompt_mode="$2"; shift 2 ;;
       --max-iters) max_iters="$2"; shift 2 ;;
       --iter-timeout) iter_timeout="$2"; shift 2 ;;
       --max-cost-usd) GPR_BUDGET_MAX_COST_USD="$2"; export GPR_BUDGET_MAX_COST_USD; shift 2 ;;
@@ -115,33 +142,57 @@ cmd_run() {
       --deep-audit) deep_audit="1"; shift ;;
       --audit-agent) audit_agent="$2"; shift 2 ;;
       -h|--help)
-        echo "gpr run [--agent claude|codex|opencode|gemini|echo] [--model ID] [--max-iters N] [--iter-timeout SEC] [--max-cost-usd USD] [--deep-audit] [--audit-agent X]"
-        echo
-        echo "  --model ID    Force the agent's underlying model (e.g. claude-opus-4-7,"
-        echo "                gpt-5-codex). Agents without a stable --model flag are"
-        echo "                left alone — use GPR_AGENT_EXTRA_ARGS for those."
-        echo
-        echo "ENV"
-        echo "  GPR_AGENT_EXTRA_ARGS   Extra flags appended to the agent invocation."
-        echo "                         Use to opt your MCP servers, allowed-tools list,"
-        echo "                         hooks-config, model override, etc. into the loop."
-        echo "                         Quoted; split with shell rules. Example:"
-        echo "                           GPR_AGENT_EXTRA_ARGS='--allowedTools \"Bash(rtk *)\"' \\"
-        echo "                             gpr run --agent claude"
+        cat <<HELP
+gpr run [--agent NAME] [--model ID] [--plan SLUG] [--max-iters N]
+        [--iter-timeout SEC] [--max-cost-usd USD] [--deep-audit]
+        [--audit-agent X] [--cmd "<binary args>" --prompt-mode stdin|argv_last|argv_named]
+
+  --agent NAME       Any CLI on PATH works. Built-in adapters: claude, codex,
+                     opencode, gemini, echo. Anything else gets an auto
+                     stdin-passthrough adapter. Custom one-shot adapter:
+                     pass --agent custom and provide --cmd / --prompt-mode.
+  --plan SLUG        Operate on .gpr/plans/<slug>/ (default: active plan).
+  --model ID         Force the agent's underlying model (e.g. claude-opus-4-7,
+                     gpt-5-codex, grok-2). Forwarded to CLIs whose adapter
+                     declares a model_flag. Otherwise recorded for cost
+                     accounting only — pass model selection via the CLI's own
+                     config or GPR_AGENT_EXTRA_ARGS.
+  --cmd "..."        With --agent custom, the binary + args invoked per iter.
+                     E.g.  --cmd "ollama run llama3"  or  --cmd "llm -m gpt-4o".
+  --prompt-mode      How the binary expects the prompt:
+                       stdin        — piped on stdin (default; most local LLMs)
+                       argv_last    — appended as the last positional arg
+                       argv_named   — preceded by --prompt-flag (use with the
+                                       --prompt-flag value baked into --cmd).
+
+ENV
+  GPR_PLAN                Active plan slug (overridden by --plan).
+  GPR_MODEL               Force the model (overridden by --model).
+  GPR_AGENT_EXTRA_ARGS    Extra flags appended to every agent invocation.
+                          Quoted; split with shell rules. Example:
+                            GPR_AGENT_EXTRA_ARGS='--allowedTools "Bash(rtk *)"' \\
+                              gpr run --agent claude
+
+  GPR_AGENT_CUSTOM_CMD    Same as --cmd for --agent custom.
+  GPR_AGENT_CUSTOM_PROMPT_MODE  Same as --prompt-mode.
+  GPR_AGENT_CUSTOM_PROMPT_FLAG  Flag for argv_named mode (e.g. --prompt).
+HELP
         return 0 ;;
       *) log_fail "unknown arg: $1"; return 2 ;;
     esac
   done
   [[ -n "$model" ]] && { GPR_MODEL="$model"; export GPR_MODEL; }
+  [[ -n "$plan" ]] && { GPR_PLAN="$plan"; export GPR_PLAN; }
+  [[ -n "$custom_cmd" ]] && { GPR_AGENT_CUSTOM_CMD="$custom_cmd"; export GPR_AGENT_CUSTOM_CMD; }
+  [[ -n "$prompt_mode" ]] && { GPR_AGENT_CUSTOM_PROMPT_MODE="$prompt_mode"; export GPR_AGENT_CUSTOM_PROMPT_MODE; }
   export GPR_DEEP_AUDIT="$deep_audit"
   [[ -n "$audit_agent" ]] && export GPR_AUDIT_AGENT="$audit_agent"
   # shellcheck source=lib/agents.sh
   source "$GPR_LIB/agents.sh"
-  if ! agent_supports "$agent"; then
-    log_fail "unknown agent: $agent"
-    return 2
-  fi
-  banner "gpr run" "agent=$agent  max-iters=$max_iters"
+  # No allow-list: agent_supports() always returns 0. agent_run will fail
+  # cleanly later if the binary isn't on PATH.
+  local resolved_slug="${plan:-${GPR_PLAN:-default}}"
+  banner "gpr run" "agent=$agent  plan=$resolved_slug  max-iters=$max_iters"
   hr
 
   export GPR_AGENT="$agent" GPR_MAX_ITERS="$max_iters" GPR_ITER_TIMEOUT="$iter_timeout"
@@ -168,8 +219,16 @@ cmd_run() {
 }
 
 cmd_status() {
+  local plan_arg=()
+  while (( $# > 0 )); do
+    case "$1" in
+      --plan) plan_arg=(--plan "$2"); shift 2 ;;
+      -h|--help) echo "gpr status [--plan SLUG]"; return 0 ;;
+      *) log_fail "unknown arg: $1"; return 2 ;;
+    esac
+  done
   local json
-  json=$(python3 -m lib.cli status --json 2>&1) || { echo "$json" >&2; return 1; }
+  json=$(python3 -m lib.cli status --json ${plan_arg[@]+"${plan_arg[@]}"} 2>&1) || { echo "$json" >&2; return 1; }
   local goal project branch status iter
   goal=$(echo "$json" | jq -r .goal)
   project=$(echo "$json" | jq -r .project)
@@ -216,38 +275,47 @@ for k in order:
 }
 
 cmd_steer() {
-  local abort=""
-  local message=""
+  local abort="" message="" plan_arg=()
   while (( $# > 0 )); do
     case "$1" in
       --abort) abort="--abort"; shift ;;
-      -h|--help) echo "gpr steer [--abort] \"<message>\""; return 0 ;;
+      --plan) plan_arg=(--plan "$2"); shift 2 ;;
+      -h|--help) echo "gpr steer [--plan SLUG] [--abort] \"<message>\""; return 0 ;;
       *) message="$1"; shift ;;
     esac
   done
-  python3 -m lib.cli steer $abort "$message"
+  python3 -m lib.cli steer ${plan_arg[@]+"${plan_arg[@]}"} $abort "$message"
 }
 
 cmd_audit() {
-  local intent="" reverse=""
+  local intent="" reverse="" plan_arg=()
   while (( $# > 0 )); do
     case "$1" in
       --intent) intent="--intent $2"; shift 2 ;;
       --reverse) reverse="--reverse"; shift ;;
-      -h|--help) echo "gpr audit [--intent ID] [--reverse]"; return 0 ;;
+      --plan) plan_arg=(--plan "$2"); shift 2 ;;
+      -h|--help) echo "gpr audit [--plan SLUG] [--intent ID] [--reverse]"; return 0 ;;
       *) log_fail "unknown arg: $1"; return 2 ;;
     esac
   done
   banner "gpr audit" ""
   hr
   # shellcheck disable=SC2086
-  python3 -m lib.cli audit $intent $reverse --json
+  python3 -m lib.cli audit ${plan_arg[@]+"${plan_arg[@]}"} $intent $reverse --json
 }
 
 cmd_lint() {
+  local plan_arg=()
+  while (( $# > 0 )); do
+    case "$1" in
+      --plan) plan_arg=(--plan "$2"); shift 2 ;;
+      -h|--help) echo "gpr lint [--plan SLUG]"; return 0 ;;
+      *) log_fail "unknown arg: $1"; return 2 ;;
+    esac
+  done
   banner "gpr lint" ""
   hr
-  python3 -m lib.cli lint
+  python3 -m lib.cli lint ${plan_arg[@]+"${plan_arg[@]}"}
 }
 
 cmd_doctor() {
@@ -281,14 +349,27 @@ for c in d['checks']:
 }
 
 cmd_trace() {
-  local since="${1:-100}"
-  banner "gpr trace" "tail $since events"
+  local since="100" plan_slug=""
+  while (( $# > 0 )); do
+    case "$1" in
+      --plan) plan_slug="$2"; shift 2 ;;
+      -h|--help) echo "gpr trace [--plan SLUG] [N]"; return 0 ;;
+      *) since="$1"; shift ;;
+    esac
+  done
+  if [[ -z "$plan_slug" ]]; then
+    plan_slug=$(python3 -c "
+import sys, os; sys.path.insert(0, '$GPR_HOME')
+from lib.state import plan as P
+print(os.environ.get('GPR_PLAN') or P.read_active_slug('.') or 'default')")
+  fi
+  banner "gpr trace" "tail $since events  (plan=$plan_slug)"
   hr
   python3 -c "
 import sys, json
 sys.path.insert(0, '$GPR_HOME')
 from lib.state import events
-for e in events.tail('.', $since):
+for e in events.tail('.', $since, slug='$plan_slug'):
   print(json.dumps(e))" 2>/dev/null || log_warn "no events yet"
 }
 
@@ -315,6 +396,9 @@ case "$cmd" in
   render)            python3 -m lib.cli render "$@" ;;
   config)            python3 -m lib.cli config "$@" ;;
   get)               python3 -m lib.cli get "$@" ;;
+  plan)              python3 -m lib.cli plan "$@" ;;
+  import)            python3 -m lib.cli import "$@" ;;
+  agent)             python3 -m lib.cli agent "$@" ;;
   commit-intent)
     # shellcheck source=lib/commit.sh
     source "$GPR_LIB/commit.sh"
