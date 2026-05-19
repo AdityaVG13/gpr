@@ -35,6 +35,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["lib"]
+include = ["lib/agents/builtin/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

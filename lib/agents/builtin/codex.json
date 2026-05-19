@@ -1,0 +1,16 @@
+{
+  "name": "codex",
+  "cmd": "codex",
+  "args": [
+    "exec",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--json"
+  ],
+  "prompt": "argv_last",
+  "prompt_flag": null,
+  "model_flag": "--model",
+  "model_id_default": "gpt-5-codex",
+  "stream_format": "codex_json",
+  "non_interactive_flags": [],
+  "timeout_seconds": 1800
+}

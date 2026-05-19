@@ -1,0 +1,14 @@
+{
+  "name": "gemini",
+  "cmd": "gemini",
+  "args": [
+    "--yolo"
+  ],
+  "prompt": "argv_named",
+  "prompt_flag": "--prompt",
+  "model_flag": null,
+  "model_id_default": null,
+  "stream_format": "passthrough",
+  "non_interactive_flags": [],
+  "timeout_seconds": 1800
+}

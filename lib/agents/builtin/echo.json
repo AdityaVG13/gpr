@@ -1,0 +1,12 @@
+{
+  "name": "echo",
+  "cmd": "__gpr_echo__",
+  "args": [],
+  "prompt": "stdin",
+  "prompt_flag": null,
+  "model_flag": null,
+  "model_id_default": "default",
+  "stream_format": "passthrough",
+  "non_interactive_flags": [],
+  "timeout_seconds": 5
+}

@@ -1,0 +1,15 @@
+{
+  "name": "opencode",
+  "cmd": "opencode",
+  "args": [
+    "run",
+    "--no-confirm"
+  ],
+  "prompt": "argv_last",
+  "prompt_flag": null,
+  "model_flag": null,
+  "model_id_default": null,
+  "stream_format": "passthrough",
+  "non_interactive_flags": [],
+  "timeout_seconds": 1800
+}
