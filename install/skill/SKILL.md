@@ -1,24 +1,49 @@
 ---
 name: gpr
-description: Run one iteration of the gpr (Goal-driven PRD Ratchet) audit-verified loop in the CURRENT Claude session, OR hand the loop off to the `gpr run` CLI driver via `/gpr loop`. Trigger when user types /gpr, /gpr next, /gpr ratchet, /gpr loop, /gpr run, "run gpr iteration", "run the loop", or asks to drive an existing .gpr/Plan.json toward done. Do NOT trigger if .gpr/Plan.json does not exist — instruct the user to run `gpr init --objective "..."` (or `/gpr-grill`) first. Single-iteration is the default; only the explicit `loop`/`run` subform delegates to the CLI driver.
+description: Run one iteration of the gpr (Goal-driven PRD Ratchet) audit-verified loop in the CURRENT Claude session, OR hand the loop off to the `gpr run` CLI driver via `/gpr loop`, OR fold an external Plan into the project via a filepath argument. Trigger when user types /gpr, /gpr next, /gpr ratchet, /gpr loop, /gpr run, /gpr <path-to-plan-file>, "run gpr iteration", "run the loop", or asks to drive an existing Plan.json toward done. Do NOT trigger if no Plan exists for the active slug AND no filepath / goal was given — instruct the user to run `gpr init --objective "..."` (or `/gpr-grill`) first. Single-iteration is the default; only the explicit `loop`/`run` subform delegates to the CLI driver.
 ---
 
-# gpr — one iteration in current session (default) or CLI-driven loop
+# gpr — one iteration (default), CLI-driven loop, or external-plan import
 
 You are executing **exactly one** iteration of a gpr loop. The gpr CLI is the source of truth for state; you are the worker. After this iteration finishes, yield control to the user — do not auto-continue.
 
-## Routing — single iteration vs. autonomous loop
+## Routing — filepath import, single iteration, autonomous loop
 
-Inspect the invocation arguments before doing anything else:
+Inspect the invocation arguments in this order:
 
-- `/gpr`, `/gpr next`, `/gpr ratchet` (no second word, or `next`/`ratchet`) → **single-iteration mode**. Continue to "Preflight" below. This is the default.
-- `/gpr loop`, `/gpr run`, `/gpr auto`, or user phrases like "run the loop", "run gpr until done" → **autonomous-loop mode**. Jump to the "Autonomous loop" section at the bottom of this file and do NOT execute the six single-iteration steps.
+1. **Filepath import.** If the first argument looks like a path to a Plan file (`./plan.json`, `~/Drafts/strategy.json`, an absolute path, or any token ending in `.json` / `.md` that resolves on disk), fold it into the project first:
+
+   ```bash
+   gpr import "<path>" --activate
+   ```
+
+   Capture the slug printed on stdout. Then **continue with single-iteration mode** against that slug — the rest of this file applies, but `--plan <slug>` is appended to every `gpr ...` call. This is how the user folds a hand-written Plan into the .gpr ecosystem.
+
+2. **`/gpr loop`, `/gpr run`, `/gpr auto`**, or user phrases like "run the loop", "run gpr until done" → **autonomous-loop mode**. Jump to the "Autonomous loop" section at the bottom of this file and do NOT execute the six single-iteration steps.
+
+3. **`/gpr`, `/gpr next`, `/gpr ratchet`** (no argument or just `next`/`ratchet`) → **single-iteration mode**. Continue to "Preflight" below. This is the default.
 
 If unsure, ask the user once: "Single iteration (`/gpr`) or hands-off loop (`/gpr loop`)?" Default to single-iteration if the user does not answer.
 
+## Multi-plan — which plan are we ratcheting on?
+
+gpr supports many concurrent named plans under `.gpr/plans/<slug>/`. The active plan is resolved at command time from:
+
+1. `--plan <slug>` argument on the gpr command,
+2. `$GPR_PLAN` env var,
+3. `.gpr/active` file (one slug per line),
+4. fallback `default`.
+
+If the user passes a slug explicitly (`/gpr --plan auth`, `/gpr loop --plan auth`), forward it on every `gpr ...` call. Otherwise the active plan applies automatically; no special handling needed. `gpr plan list` shows what's available; `gpr plan use <slug>` switches the default.
+
 ## Preflight (run once, fail fast)
 
-Run `gpr doctor` via Bash. If `gpr` is not on PATH, instruct the user to install it from https://github.com/AdityaVG13/GPR and stop. If `.gpr/Plan.json` does not exist in the current working directory, tell the user to run `gpr init --objective "..."` and stop.
+Run `gpr doctor` via Bash. If `gpr` is not on PATH, instruct the user to install it from https://github.com/AdityaVG13/GPR and stop. If the active plan has no `Plan.json` (`gpr status` returns an error), tell the user to either:
+
+- run `gpr init --objective "..."` (or `/gpr-grill`) to scaffold a new Plan, or
+- run `gpr import <path>` (or just `/gpr <path>`) if they have an existing Plan file to fold in.
+
+and stop.
 
 ## The six steps
 
@@ -42,12 +67,14 @@ This prints the full continuation prompt for THIS iteration. **Read it end-to-en
 
 ### 3. Read the priority files
 
-The rendered prompt instructs you to read these in order — do it:
+The rendered prompt instructs you to read these in order — do it. Paths are scoped to the active plan (`.gpr/plans/<slug>/`):
 
-- `.gpr/Steer.md` — if non-empty, the human is redirecting you. Do that work first, then `> .gpr/Steer.md` to clear it, and emit a `progress` signal. **Skip the rest of this iteration.**
-- `.gpr/Pinned.md` — read-only invariants. Never overwrite this file.
-- `.gpr/Spine.md` — externalized memory; what prior iterations decided.
-- `.gpr/errors.log` — recent failures to avoid.
+- `.gpr/plans/<slug>/Steer.md` — if non-empty, the human is redirecting you. Do that work first, then `> .gpr/plans/<slug>/Steer.md` to clear it, and emit a `progress` signal. **Skip the rest of this iteration.**
+- `.gpr/plans/<slug>/Pinned.md` — read-only invariants. Never overwrite this file.
+- `.gpr/plans/<slug>/Spine.md` — externalized memory; what prior iterations decided.
+- `.gpr/plans/<slug>/errors.log` — recent failures to avoid.
+
+(The rendered prompt embeds these inline, so you usually don't need to re-read them as separate files.)
 
 ### 4. Do the work — one intent only
 
@@ -92,7 +119,7 @@ Then run `gpr status` to summarize progress, and yield.
 ## Hard rules
 
 - Exactly **one** iteration per `/gpr` invocation (default mode). Do not call `gpr next-intent` twice.
-- Do not modify `.gpr/Plan.json` directly. Use `gpr` subcommands.
+- Do not modify `.gpr/plans/<slug>/Plan.json` directly. Use `gpr` subcommands.
 - Do not skip the audit by editing the plan to mark an intent done. The audit is the contract.
 - If you are uncertain whether the intent is done, emit `progress`, not `done`. The cost of a wasted iteration is small; the cost of a falsely-done intent is large (regressions land in `done` proofs).
 
@@ -149,8 +176,10 @@ gpr run --agent claude
 
 Override flags only when the user asks:
 
-- `--agent codex|opencode|gemini|echo` to switch agent.
-- `--model claude-opus-4-7` to pin a specific model.
+- `--agent <NAME>` — any CLI on PATH works. Built-in adapters: `claude`, `codex`, `opencode`, `gemini`, `echo`. **Any other name** (e.g. `grok`, `llm`, `aider`, the next CLI that ships next week) gets an automatic stdin-passthrough adapter — just install the binary and `--agent <name>` Just Works. `gpr agent list` shows what's registered; `gpr agent add <name> --cmd ... --prompt-mode ...` registers a custom adapter once and reuses it.
+- `--model <ID>` to pin a specific model (e.g. `claude-opus-4-7`, `gpt-5-codex`, `grok-2`). The flag forwards to CLIs whose adapter declares a `model_flag`; otherwise it's recorded for cost accounting only — pass the model via the CLI's own config or `GPR_AGENT_EXTRA_ARGS`.
+- `--plan <slug>` to target a specific plan when multiple exist under `.gpr/plans/`. Defaults to the active plan.
+- `--cmd "..." --prompt-mode stdin|argv_last|argv_named` to invoke any binary one-shot via `--agent custom`. Example: `gpr run --agent custom --cmd "ollama run llama3"`.
 - `--max-iters N` to cap iterations.
 - `--max-cost-usd USD` to cap spend (overrides Plan.budget for this run).
 - `--deep-audit` to add Layer-2 model-driven audit on top of Layer-1 verifyCmds.
