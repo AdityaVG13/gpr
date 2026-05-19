@@ -4,8 +4,9 @@
 
 A CLI that drives a coding agent through an audit-verified Plan.
 
+[![Version](https://img.shields.io/badge/version-0.2.0-blue?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-76_passing-emerald?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/tests-106_passing-emerald?style=flat-square)](tests/)
 [![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![Platforms](https://img.shields.io/badge/platforms-macOS_%7C_Linux_%7C_Windows-9cf?style=flat-square)](#quickstart)
