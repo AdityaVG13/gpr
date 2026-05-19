@@ -69,7 +69,7 @@ That bootstraps the Plan via an interactive interview (`gpr-grill`), runs the lo
 
 ## What you write
 
-Every gpr run starts from a `Plan.json` — a real spec the loop reads on every iteration. Here's a real one (the example shipped under `examples/hello-fastapi/`):
+Every gpr run starts from a `Plan.json` — a real spec the loop reads on every iteration. As of v0.2 each plan lives under `.gpr/plans/<slug>/Plan.json`, so multiple named plans coexist in the same project without filename clashes. Here's a real one (the example shipped under `examples/hello-fastapi/`):
 
 ```json
 {
@@ -119,7 +119,7 @@ There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up)
 
 | Command | What it does |
 |---|---|
-| `gpr init` | Scaffold `.gpr/Plan.json`, `Pinned.md`, `Spine.md` |
+| `gpr init` | Scaffold `.gpr/plans/<slug>/Plan.json`, `Pinned.md`, `Spine.md` (slug defaults to `default`) |
 | `gpr run` | Drive the loop until done / blocked / budget |
 | `gpr status` | Show plan progress, next intent, budget burn |
 | `gpr render` | Write a self-contained interactive HTML view of the Plan |
@@ -128,10 +128,54 @@ There's also a budget governor (token + wall-clock + USD with soft-stop wrap-up)
 | `gpr lint` | Warn about weak verifyCmds, dependency cycles, oversize fields |
 | `gpr doctor` | Check Python, git, jq, and installed agent CLIs |
 | `gpr config` | List / get / set viewer + run defaults |
+| `gpr plan` | List / use / current / rm / rename named plans |
+| `gpr import <path>` | Fold an external Plan.json or Plan.md into `.gpr/plans/<slug>/` |
+| `gpr agent` | List / show / add / rm agent adapters |
 | `gpr trace` | Tail recent events |
 | `gpr commit-intent <ID>` | Generate a conventional-commits message for the iteration's diff |
 | `gpr pr-description` | Synthesise the whole run into a PR body |
 | `gpr confidence-audit` | Scrutinise the Plan for loopholes; loop until confident |
+
+Every state-touching command accepts `--plan <slug>` to operate on a specific plan. Without it, gpr resolves the slug from `$GPR_PLAN` → `.gpr/active` → `default`.
+
+### Running multiple plans in parallel
+
+```bash
+gpr init --plan todo-api --objective "TODO REST API with auth"
+gpr init --plan tweaks   --objective "Polish the existing dashboard"
+gpr run  --plan todo-api --agent claude   &   # foreground 1
+gpr run  --plan tweaks   --agent codex    &   # foreground 2
+gpr plan list
+```
+
+Each plan has its own `.gpr/plans/<slug>/{Plan.json, Pinned.md, Spine.md, Steer.md, budget.json, runs/, locks/}` so the two `gpr run` processes lock different files and can't collide. Use the named-plan layout if you want gpr purely as a PRD staging-ground (run `/gpr-grill` against several slugs, never start a loop).
+
+### Folding a hand-written Plan into the project
+
+```bash
+gpr import ~/Drafts/auth-strategy.json --name auth --activate
+/gpr        # one iteration on the imported plan
+```
+
+In a Claude Code TUI you can short-circuit this:
+
+```
+/gpr ~/Drafts/auth-strategy.json
+```
+
+The skill detects the leading filepath, runs `gpr import --activate`, then continues with a normal single-iteration call. Accepts `Plan.json`, any `*.json` whose top-level shape has `goal` + `intents`, or a markdown file with a fenced ```` ```json ```` block.
+
+### Using any agent CLI (no allow-list)
+
+```bash
+gpr run --agent claude
+gpr run --agent grok                       # new CLI? no adapter? auto stdin-passthrough
+gpr run --agent custom --cmd "ollama run llama3"
+gpr agent add aider --cmd aider --prompt-mode stdin --scope user
+gpr run --agent aider                      # now registered everywhere
+```
+
+Built-in adapters ship for `claude`, `codex`, `opencode`, `gemini`, `echo`. **Any other name** falls back to a generic stdin-passthrough adapter — if the binary is on PATH, gpr just runs it and pipes the prompt. Register adapters once via `gpr agent add` for CLIs that want custom flags or a model-flag forwarding rule.
 
 ### Claude Code slash commands
 
@@ -253,7 +297,7 @@ User-global config lives at `~/.config/gpr/config.json`. Per-project overrides a
 | `viewer.scrubbable_budget` | `false` | reactive budget knobs (placeholder) |
 | `viewer.editable` | `false` | contenteditable + patch download |
 | `viewer.auto_refresh` | `0` | seconds between meta-refresh; `0` disables |
-| `run.agent` | `claude` | `claude` / `codex` / `opencode` / `gemini` / `echo` |
+| `run.agent` | `claude` | any CLI on PATH; built-in adapters for `claude`, `codex`, `opencode`, `gemini`, `echo`; anything else auto-passthrough |
 | `run.deep_audit` | `false` | invoke Layer-2 cross-model auditor on done-flips |
 | `run.audit_agent` | `null` | override agent for Layer-2 |
 | `run.max_iters` | `50` | hard cap on iterations per run |
@@ -332,7 +376,7 @@ gpr config reset
 <details>
 <summary>Live updates while a run is going</summary>
 
-Every iteration reads:
+Every iteration reads (paths are per-plan under `.gpr/plans/<slug>/`):
 
 | File | Read each iter | Use |
 |---|---|---|

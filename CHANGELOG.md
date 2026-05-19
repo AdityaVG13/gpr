@@ -1,5 +1,89 @@
 # Changelog
 
+## v0.2.0 — 2026-05-19
+
+Multi-plan namespacing + any-agent harness. Two structural changes that
+unlock parallel runs and free gpr from its model allow-list. Backwards-
+compatible: legacy `.gpr/Plan.json` layouts auto-migrate on first command.
+
+- **Multi-plan layout under `.gpr/plans/<slug>/`.** Every plan now lives in
+  its own directory with its own `Plan.json`, `Pinned.md`, `Spine.md`,
+  `Steer.md`, `budget.json`, `events.jsonl`, `Plan.html`, `runs/`, `locks/`,
+  `snapshots/`. Two `gpr run` processes against two different slugs cannot
+  collide because they lock independent files. `.gpr/active` records the
+  default slug so existing `/gpr` / `gpr status` calls keep working. New
+  global flag `--plan <slug>` on every state-touching command. Resolution
+  order: `--plan` > `$GPR_PLAN` > `.gpr/active` > `default`. Auto-migration
+  of legacy `.gpr/Plan.json` (and siblings: `Pinned.md`, `Spine.md`,
+  `Steer.md`, `budget.json`, `errors.log`, `events.jsonl`, `Plan.html`,
+  `runs/`, `locks/`, `snapshots/`, `main_history/`) happens on first
+  invocation in any project — no manual step. Note: gpr is *also* useful
+  as pure PRD staging-ground (run the grill, never touch the loop) — the
+  named-plans layout makes that ergonomic too: keep `.gpr/plans/strategy/`,
+  `.gpr/plans/q3-roadmap/`, etc. side-by-side without filename clashes.
+
+- **New: `gpr plan` — manage named plans.** `gpr plan list` shows every
+  plan with its goal, status, and intent counts (json or human). `gpr plan
+  use <slug>` switches the active plan. `gpr plan current` prints the
+  active slug. `gpr plan rm <slug> [--force]` deletes (refuses unfinished
+  plans without `--force`). `gpr plan rename <old> <new>` renames the
+  directory and updates `.gpr/active` if needed.
+
+- **New: `gpr import <path>` — fold an external Plan into the project.**
+  Accepts a `Plan.json`, any `*.json` with `goal` + `intents` keys, OR a
+  markdown file with a ```` ```json ```` fenced block. Normalizes missing
+  fields (status, persona, globalState, defaults on intents/checks) under
+  fcntl. Slugifies the name from `--name`, `--project`, or the filename
+  stem. Conflicting slugs auto-suffix (`twin` → `twin-2`). Pass
+  `--activate` to make the imported plan the active one. Drop-in
+  detection: a hand-placed `.gpr/plans/<slug>/Plan.json` is lazy-normalized
+  on first load — no `import` step required.
+
+- **`/gpr <filepath>` — TUI-level Plan import.** The Claude Code skill now
+  routes a leading filepath argument through `gpr import --activate` and
+  continues with single-iteration mode against the imported plan. The
+  skill detects path-ness by leading `./`, `../`, `/`, `~`, `~/`, or any
+  `.json` / `.md` token that resolves on disk. Existing `/gpr <goal>`
+  string flow still works for fuzzy goals.
+
+- **Drop the agent allow-list.** `agents.sh` is now adapter-driven. Built-in
+  adapters ship as JSON for `claude`, `codex`, `opencode`, `gemini`, `echo`
+  (no behavior change). Resolution order: `.gpr/agents/<name>.json` →
+  `~/.config/gpr/agents/<name>.json` → `lib/agents/builtin/<name>.json` →
+  one-shot `GPR_AGENT_CUSTOM_CMD` env → **synthetic stdin-passthrough**
+  if the binary is on PATH. Result: `gpr run --agent grok` works the day
+  grok ships, `gpr run --agent llm`, `gpr run --agent aider`, anything.
+  No code change required. `gpr run --agent custom --cmd "ollama run
+  llama3"` for one-shot ad-hoc runs.
+
+- **New: `gpr agent` — manage adapters.** `gpr agent list` shows every
+  adapter (project shadows user shadows built-in). `gpr agent show <name>`
+  prints the resolved JSON. `gpr agent add <name> --cmd <bin>
+  [--arg X --arg Y] [--prompt-mode stdin|argv_last|argv_named]
+  [--model-flag --model] [--stream-format passthrough|claude_stream_json|
+  codex_json] [--cost-input N --cost-output N] [--scope user|project]`
+  registers a reusable adapter. `gpr agent rm <name>` removes it (built-ins
+  are never removed).
+
+- **`--model <ID>` works for any CLI whose adapter declares a model flag.**
+  Forwarded into the spawned argv when set. CLIs without a `model_flag`
+  silently record the id for cost accounting — pass model selection via
+  the CLI's own config or `GPR_AGENT_EXTRA_ARGS`.
+
+- **Built-in budget rates keyed by adapter `stream_format` *and* legacy
+  agent name.** `parse_usage("claude_stream_json", lines)` and
+  `parse_usage("claude", lines)` both work. Adapter authors can set
+  `cost_rates_per_mtok` per-adapter to override the global fallback.
+
+- **Tests:** 24 new tests cover slug pathing, parallel locks, migration
+  (legacy → default, idempotent, non-clobbering), lazy normalize, adapter
+  resolution order, synthetic passthrough on any PATH binary, project
+  override, one-shot custom adapter, no allow-list, full-plan import,
+  partial-JSON import, markdown fenced-block import, invalid-file refusal,
+  auto-suffix on conflict, activation, `plan list`/`use`. e2e dryrun
+  exercises multi-plan create, import, agent list. Total: **106 tests
+  pass**.
+
 ## v0.1.7 — 2026-05-11
 
 Skill UX polish + discoverability. No core loop changes.

@@ -57,6 +57,33 @@ Cognitive-priming research shows that role assignment shifts a model's output re
 
 A draft Plan is not a contract. The user prompt that motivated this feature was: "Are you 100% confident in this strategy? If not, find all possible loopholes, suggest proper fixes, and run this loop until you are factually 100% confident." That maps directly to the eight-category scrutiny pass and the iterate-until-confident loop in `gpr confidence-audit`. The cost (one extra agent invocation per Plan) is paid once per Plan, not once per iteration; the value is avoiding wasted runs against a Plan with gameable verifyCmds or DAG cycles.
 
+### Why per-plan directories under `.gpr/plans/<slug>/`
+
+Pre-v0.2, gpr assumed a single Plan per project: every state file (`Plan.json`, `Pinned.md`, `Spine.md`, `Steer.md`, `budget.json`, `runs/`, `locks/plan.lock`) lived at the top level of `.gpr/`. That model breaks two real use cases:
+
+1. **Parallel ratchets.** A user wants to ratchet on two unrelated subsystems in the same project simultaneously (`auth-rewrite` and `dashboard-polish`), each with its own intents, budget, lock, and event stream. With a single top-level `Plan.json`, the two `gpr run` processes would corrupt each other's state.
+2. **PRD staging.** Many users adopt gpr's PRD-construction flow (`/gpr-grill`, `gpr lint`, `gpr render`, `gpr confidence-audit`) without ever running the loop — `.gpr/` becomes a structured drafts folder. Holding multiple drafts side-by-side requires named slots, not a single file.
+
+The new layout solves both with one structural change: every plan is a directory under `.gpr/plans/<slug>/` containing the full state surface, and `.gpr/active` records which slug is the default for bare commands. Slug resolution order — `--plan` > `$GPR_PLAN` > `.gpr/active` > `default` — keeps existing single-plan workflows working unchanged after a one-time auto-migration that walks the legacy files into `.gpr/plans/default/`. Lock files moving into the per-plan directory means parallel `gpr run` processes against different slugs cannot collide.
+
+### Why no agent allow-list
+
+The original `agent_supports()` gate hardcoded `claude|codex|opencode|gemini|echo`. Every new CLI required a code change to add a case branch. That model breaks the day a new CLI ships — at the time of writing, the grok build CLI just launched, and gpr would have refused it with a "unknown agent" error.
+
+The fix is structural: agents.sh is now adapter-driven. Each adapter is a small JSON document describing how to invoke the binary (`cmd`, `args`), where to put the prompt (`prompt: stdin|argv_last|argv_named`), which flag carries the model id (`model_flag`), and which stream-usage parser to apply (`stream_format: passthrough|claude_stream_json|codex_json`). The five built-in adapters (claude, codex, opencode, gemini, echo) ship as JSON files under `lib/agents/builtin/`; user and project layers shadow built-ins; and — critically — if no adapter is found but the binary is on PATH, gpr synthesises a generic stdin-passthrough adapter on the fly. Result: `gpr run --agent grok` works the day grok ships, with zero gpr changes. Cost accounting falls back to a default rate when the adapter has no `cost_rates_per_mtok`; budget axes that depend on tokens or cost simply don't gate for those agents, and wall-clock still does.
+
+The `--cmd "..." --prompt-mode ..."` flags on `gpr run --agent custom` provide the ad-hoc escape hatch — `gpr run --agent custom --cmd "ollama run llama3"` runs a local model with no registration.
+
+### Why filepath import (`gpr import` + `/gpr <path>`)
+
+A user with an existing Plan.json they hand-wrote (or generated from another tool, or shared via Slack) shouldn't need to know the canonical `.gpr/plans/<slug>/` path to fold it in. Three import paths address three workflows:
+
+1. `gpr import <path> [--name <slug>] [--activate]` — explicit CLI command. Accepts `Plan.json`, partial JSON with just `goal` + `intents` (normalized via `normalize_plan_dict`), or a markdown file with a ```` ```json ```` fenced block. Slugifies from `--name` or filename; auto-suffixes on collision.
+2. Drop-in detection — placing a `Plan.json` directly under `.gpr/plans/<slug>/` and running any gpr command lazy-normalizes on first load. Useful for `cp` workflows.
+3. `/gpr <filepath>` from a TUI — the Claude Code skill detects a leading filepath argument and routes through `gpr import --activate` before continuing with a normal single-iteration call. Matches user reflex: "I have this plan file, drive a round on it".
+
+Markdown support exists because plenty of plans live as PRD docs with the JSON spec inline. We extract the first ```` ```json ```` fenced block whose top-level shape has `goal` + `intents`, then normalize as if it had been a `Plan.json`. Stops users from having to manually copy the JSON out of their PRD doc into a separate file.
+
 ## Open questions for v0.2
 
 - **MCP server** (Phase 8). The CLI is a viable backend for an MCP server that exposes `pick_intent`, `render_prompt`, `ingest_signal`, `audit`, `steer`, `status` as tools. Defer until A+B usage settles.
