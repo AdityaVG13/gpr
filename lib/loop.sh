@@ -37,10 +37,12 @@ iter_disk_check() {
   return 0
 }
 
-# Stage 2: log a notice if Steer.md is non-empty. The continuation prompt
-# template handles the actual steer behaviour; this is human-visible only.
+# Stage 2: log a notice if Steer.md is non-empty. Plan-scoped.
+# The continuation prompt template handles the actual steer behaviour;
+# this is human-visible only.
 iter_steer_log() {
-  if [[ -s ".gpr/Steer.md" ]]; then
+  local pdir=".gpr/plans/${GPR_PLAN:-default}"
+  if [[ -s "$pdir/Steer.md" ]]; then
     log_warn "Steer.md non-empty — agent will handle steer this iter"
   fi
 }
@@ -51,7 +53,7 @@ iter_steer_log() {
 #         1 (next-intent command failed).
 iter_pick_intent() {
   local next_json
-  if ! next_json=$(GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli next-intent --json 2>&1); then
+  if ! next_json=$(GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli next-intent --json --plan "${GPR_PLAN:-default}" 2>&1); then
     if echo "$next_json" | grep -q '"no_open_intents"'; then
       log_ok "no open intents — checking final completion"
       return 9
@@ -68,7 +70,7 @@ iter_pick_intent() {
 iter_render_prompt() {
   local iter_dir="$1" intent_id="$2"
   if ! GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli render-prompt --intent "$intent_id" \
-       > "$iter_dir/prompt.md"; then
+       --plan "${GPR_PLAN:-default}" > "$iter_dir/prompt.md"; then
     log_fail "render-prompt failed"
     return 1
   fi
@@ -117,19 +119,22 @@ iter_record_budget() {
   local agent="$1" iter_dir="$2" model_id="$3"
   local tokens_in=0 tokens_out=0
   if [[ "$agent" != "echo" ]]; then
+    local fmt
+    fmt=$(agent_stream_format "$agent")
     local usage
     usage=$(GPR_PROJECT_ROOT="$PWD" python3 -c "
 import sys; sys.path.insert(0, '$GPR_LIB/..')
 from lib.state import budget
 lines = open('$iter_dir/stream.log').read().splitlines()
-i, o = budget.parse_usage('$agent', lines)
+i, o = budget.parse_usage('$fmt', lines)
 print(f'{i} {o}')")
     read -r tokens_in tokens_out <<< "$usage"
   fi
   GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli record-budget \
     --agent "$agent" --model "$model_id" \
     --tokens-input "${tokens_in:-0}" --tokens-output "${tokens_out:-0}" \
-    --wall-seconds "$AGENT_WALL" --json > "$iter_dir/budget.json"
+    --wall-seconds "$AGENT_WALL" --plan "${GPR_PLAN:-default}" \
+    --json > "$iter_dir/budget.json"
 }
 
 # Stage 7: ingest the agent's signal block, run Layer-1 audit if status=done.
@@ -138,7 +143,8 @@ iter_ingest_signal() {
   local iter_dir="$1" intent_id="$2"
   local ingest_json
   ingest_json=$(GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli ingest-signal \
-    --stdin --intent "$intent_id" --json < "$iter_dir/stdout.log" 2>&1) || {
+    --stdin --intent "$intent_id" --plan "${GPR_PLAN:-default}" --json \
+    < "$iter_dir/stdout.log" 2>&1) || {
       log_fail "ingest-signal failed: $ingest_json"
       SIG_STATUS="progress"
       AUDIT_ALL_PASS="false"
@@ -176,6 +182,7 @@ iter_layer2_audit() {
   local audit_prompt_path="$iter_dir/layer2-prompt.md"
   GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli render-audit-prompt \
     --intent "$intent_id" --audit-json "$iter_dir/audit.json" \
+    --plan "${GPR_PLAN:-default}" \
     > "$audit_prompt_path"
   local layer2_stream="$iter_dir/layer2-stream.log"
   spinner_start "Layer-2 verifier ($audit_agent)"
@@ -192,7 +199,7 @@ iter_layer2_audit() {
   set +e
   local verdict_json
   verdict_json=$(echo "$layer2_out" | GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli \
-    ingest-audit-verdict --intent "$intent_id" --stdin --json 2>&1)
+    ingest-audit-verdict --intent "$intent_id" --stdin --plan "${GPR_PLAN:-default}" --json 2>&1)
   local v_rc=$?
   set -e
   echo "$verdict_json" > "$iter_dir/layer2-verdict.json"
@@ -208,7 +215,7 @@ iter_layer2_audit() {
 # Sets STALLED ("true" / "false").
 iter_signature() {
   local sig_json
-  sig_json=$(GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli record-signature --json)
+  sig_json=$(GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli record-signature --plan "${GPR_PLAN:-default}" --json)
   STALLED=$(echo "$sig_json" | jq -r '.stalled')
 }
 
@@ -318,17 +325,19 @@ loop_run() {
   local agent="${GPR_AGENT:-claude}"
   local max_iters="${GPR_MAX_ITERS:-50}"
   local iter_timeout="${GPR_ITER_TIMEOUT:-1800}"
+  local plan_slug="${GPR_PLAN:-default}"
 
-  if [[ ! -f .gpr/Plan.json ]]; then
-    log_fail "no .gpr/Plan.json — run 'gpr init' first"
+  local plan_path=".gpr/plans/$plan_slug/Plan.json"
+  if [[ ! -f "$plan_path" ]]; then
+    log_fail "no $plan_path — run 'gpr init --plan $plan_slug' or 'gpr import' first"
     return 1
   fi
 
   local run_id
   run_id="$(date +%Y%m%d-%H%M%S)-$$"
-  local run_dir=".gpr/runs/$run_id"
+  local run_dir=".gpr/plans/$plan_slug/runs/$run_id"
   mkdir -p "$run_dir"
-  log_info "run id: ${C_BOLD}$run_id${C_RESET}"
+  log_info "plan: ${C_BOLD}$plan_slug${C_RESET}  run id: ${C_BOLD}$run_id${C_RESET}"
 
   local i rc
   for (( i = 1; i <= max_iters; i++ )); do
@@ -368,7 +377,7 @@ loop_reverse_audit() {
     return 0
   fi
   local prompt_path="$run_dir/reverse-audit-prompt.md"
-  GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli render-reverse-prompt > "$prompt_path"
+  GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli render-reverse-prompt --plan "${GPR_PLAN:-default}" > "$prompt_path"
   local stream="$run_dir/reverse-audit-stream.log"
   spinner_start "reverse audit ($agent)"
   set +e
@@ -384,7 +393,7 @@ loop_reverse_audit() {
   local verdict_json
   set +e
   verdict_json=$(echo "$out" | GPR_PROJECT_ROOT="$PWD" python3 -m lib.cli \
-    ingest-reverse-verdict --stdin --json 2>&1)
+    ingest-reverse-verdict --stdin --plan "${GPR_PLAN:-default}" --json 2>&1)
   local v_rc=$?
   set -e
   echo "$verdict_json" > "$run_dir/reverse-audit.json"
