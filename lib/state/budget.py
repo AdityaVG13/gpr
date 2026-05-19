@@ -15,8 +15,18 @@ DEFAULT_RATES_USD_PER_MTOK: dict[str, dict[str, float]] = {
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-haiku-4-5": {"input": 0.80, "output": 4.0},
     "gpt-5-codex": {"input": 1.25, "output": 10.0},
+    # Fallback rate; agents whose model is unknown (or local/free) record
+    # cost at this rate unless their adapter overrides via cost_rates_per_mtok.
     "default": {"input": 5.0, "output": 25.0},
 }
+
+
+def register_rates(model: str, input_per_mtok: float, output_per_mtok: float) -> None:
+    """Register a per-MTok rate for a model id. Used by adapter loading."""
+    DEFAULT_RATES_USD_PER_MTOK[model] = {
+        "input": float(input_per_mtok),
+        "output": float(output_per_mtok),
+    }
 
 
 def empty_budget_state() -> dict[str, Any]:
@@ -31,12 +41,15 @@ def empty_budget_state() -> dict[str, Any]:
     }
 
 
-def budget_path(project_root: str | Path) -> Path:
-    return Path(project_root) / ".gpr" / "budget.json"
+DEFAULT_SLUG = "default"
 
 
-def load(project_root: str | Path) -> dict[str, Any]:
-    p = budget_path(project_root)
+def budget_path(project_root: str | Path, slug: str = DEFAULT_SLUG) -> Path:
+    return Path(project_root) / ".gpr" / "plans" / slug / "budget.json"
+
+
+def load(project_root: str | Path, slug: str = DEFAULT_SLUG) -> dict[str, Any]:
+    p = budget_path(project_root, slug)
     if not p.exists():
         return empty_budget_state()
     try:
@@ -45,8 +58,10 @@ def load(project_root: str | Path) -> dict[str, Any]:
         return empty_budget_state()
 
 
-def save(project_root: str | Path, state: dict[str, Any]) -> None:
-    p = budget_path(project_root)
+def save(
+    project_root: str | Path, state: dict[str, Any], slug: str = DEFAULT_SLUG
+) -> None:
+    p = budget_path(project_root, slug)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, indent=2) + "\n")
@@ -170,14 +185,21 @@ def parse_codex_usage(stream_lines: list[str]) -> tuple[int, int]:
     return in_total, out_total
 
 
-PARSER_REGISTRY = {
+PARSER_REGISTRY: dict[str, callable] = {  # type: ignore[type-arg]
+    # Keyed by adapter `stream_format`. The legacy agent-name keys remain
+    # so calls like parse_usage("claude", ...) from older callers still work.
+    "claude_stream_json": parse_claude_stream_usage,
+    "codex_json": parse_codex_usage,
+    "passthrough": lambda _lines: (0, 0),
+    # Back-compat with the previous agent-name keying.
     "claude": parse_claude_stream_usage,
     "codex": parse_codex_usage,
 }
 
 
-def parse_usage(agent: str, stream_lines: list[str]) -> tuple[int, int]:
-    parser = PARSER_REGISTRY.get(agent)
+def parse_usage(agent_or_format: str, stream_lines: list[str]) -> tuple[int, int]:
+    """Parse token usage. Accepts either a stream_format key or an agent name."""
+    parser = PARSER_REGISTRY.get(agent_or_format)
     if parser is None:
         return (0, 0)
     return parser(stream_lines)

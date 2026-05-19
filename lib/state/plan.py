@@ -1,9 +1,19 @@
-"""Plan: source-of-truth state file. CRUD with atomic writes + DAG checks."""
+"""Plan: source-of-truth state file. CRUD with atomic writes + DAG checks.
+
+Multi-plan layout. Every plan lives under .gpr/plans/<slug>/. The legacy
+top-level .gpr/Plan.json layout is auto-migrated into .gpr/plans/default/
+on first access via `ensure_migration()`.
+
+Path helpers all take a `slug` arg. The CLI resolves the active slug from
+--plan, $GPR_PLAN, .gpr/active, then "default".
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +22,27 @@ from typing import Any
 from .lock import file_lock
 
 SCHEMA_VERSION = "1.1.0"
+DEFAULT_SLUG = "default"
+
+# Top-level files that lived in .gpr/ in the legacy layout and now live in
+# .gpr/plans/<slug>/ in the multi-plan layout. viewer-config.json stays
+# project-wide and is NOT migrated.
+LEGACY_FILES = (
+    "Plan.json",
+    "Pinned.md",
+    "Spine.md",
+    "Steer.md",
+    "budget.json",
+    "errors.log",
+    "events.jsonl",
+    "Plan.html",
+)
+LEGACY_DIRS = (
+    "runs",
+    "locks",
+    "snapshots",
+    "main_history",
+)
 
 PERSONAS = {
     "principal_engineer": (
@@ -74,12 +105,155 @@ def _gpr_dir(project_root: str | Path) -> Path:
     return Path(project_root) / ".gpr"
 
 
-def plan_path(project_root: str | Path) -> Path:
-    return _gpr_dir(project_root) / "Plan.json"
+def slugify(text: str) -> str:
+    """Lowercase, replace non-alphanumeric with '-', collapse, trim.
+
+    Empty / whitespace-only input → "plan". Ensures we never return "" or
+    a slug starting with '.' or '/' that could escape .gpr/plans/.
+    """
+    s = (text or "").strip().lower()
+    s = re.sub(r"[^a-z0-9._-]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-._/")
+    return s or "plan"
 
 
-def lock_path(project_root: str | Path) -> Path:
-    return _gpr_dir(project_root) / "locks" / "plan.lock"
+def plan_dir(project_root: str | Path, slug: str = DEFAULT_SLUG) -> Path:
+    return _gpr_dir(project_root) / "plans" / slug
+
+
+def plan_path(project_root: str | Path, slug: str = DEFAULT_SLUG) -> Path:
+    return plan_dir(project_root, slug) / "Plan.json"
+
+
+def lock_path(project_root: str | Path, slug: str = DEFAULT_SLUG) -> Path:
+    return plan_dir(project_root, slug) / "locks" / "plan.lock"
+
+
+def active_plan_path(project_root: str | Path) -> Path:
+    return _gpr_dir(project_root) / "active"
+
+
+def read_active_slug(project_root: str | Path) -> str | None:
+    """Return the slug recorded in .gpr/active or None if absent/blank."""
+    p = active_plan_path(project_root)
+    if not p.exists():
+        return None
+    s = p.read_text(errors="replace").strip()
+    return s or None
+
+
+def write_active_slug(project_root: str | Path, slug: str) -> None:
+    p = active_plan_path(project_root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(slug.strip() + "\n")
+
+
+def list_plans(project_root: str | Path) -> list[str]:
+    """Return sorted slugs that have a Plan.json on disk."""
+    plans_root = _gpr_dir(project_root) / "plans"
+    if not plans_root.exists():
+        return []
+    return sorted(
+        d.name
+        for d in plans_root.iterdir()
+        if d.is_dir() and (d / "Plan.json").exists()
+    )
+
+
+def ensure_migration(project_root: str | Path) -> bool:
+    """Migrate legacy .gpr/Plan.json (and siblings) into .gpr/plans/default/.
+
+    Idempotent. Returns True if migration ran, False if there was nothing to
+    migrate or the new layout was already in place. Never overwrites an
+    existing .gpr/plans/default/Plan.json.
+    """
+    root = Path(project_root)
+    gpr = _gpr_dir(root)
+    legacy_plan = gpr / "Plan.json"
+    if not legacy_plan.exists():
+        return False
+    default_dir = plan_dir(root, DEFAULT_SLUG)
+    if (default_dir / "Plan.json").exists():
+        # New layout already populated for default; leave legacy alone.
+        return False
+    default_dir.mkdir(parents=True, exist_ok=True)
+    moved = False
+    for fname in LEGACY_FILES:
+        src = gpr / fname
+        if src.exists():
+            shutil.move(str(src), str(default_dir / fname))
+            moved = True
+    for dname in LEGACY_DIRS:
+        src = gpr / dname
+        if src.exists():
+            dst = default_dir / dname
+            if dst.exists():
+                # Merge: move each child individually.
+                for child in src.iterdir():
+                    shutil.move(str(child), str(dst / child.name))
+                src.rmdir()
+            else:
+                shutil.move(str(src), str(dst))
+            moved = True
+    if moved:
+        active = active_plan_path(root)
+        if not active.exists():
+            active.write_text(DEFAULT_SLUG + "\n")
+    return moved
+
+
+def normalize_plan_dict(plan: dict[str, Any], goal_fallback: str = "") -> dict[str, Any]:
+    """Fill missing required fields on an imported Plan with defaults.
+
+    Used by `gpr import` and lazy-load drop-in detection so a hand-crafted
+    Plan.json can be folded into the .gpr ecosystem without manual editing.
+    Idempotent: a fully-populated plan passes through unchanged.
+    """
+    plan.setdefault("schema_version", SCHEMA_VERSION)
+    plan.setdefault("project", "imported")
+    plan.setdefault("goal", goal_fallback or plan.get("goal", "(no goal)"))
+    plan.setdefault("branch", "unknown")
+    plan.setdefault("createdAt", utc_now())
+    plan.setdefault("status", "pursuing")
+    plan.setdefault(
+        "persona",
+        {"primary": DEFAULT_PERSONA, "rationale": "imported plan; default persona"},
+    )
+    plan.setdefault("qualityGates", [])
+    plan.setdefault(
+        "budget", {"tokens": None, "wallClockSeconds": None, "maxCostUsd": None}
+    )
+    plan.setdefault("intents", [])
+    plan.setdefault(
+        "globalState",
+        {
+            "iteration": 0,
+            "consecutiveSameSignature": 0,
+            "consecutiveBlocked": 0,
+            "lastPayloadHash": None,
+            "lastCheckboxCount": [0, 0],
+            "lastZeroToolCallIter": None,
+            "runStartedAt": None,
+            "wrapUpFlag": False,
+        },
+    )
+    # Fill in optional intent / check fields the audit + render code expects.
+    for it in plan["intents"]:
+        it.setdefault("status", "open")
+        it.setdefault("priority", 50)
+        it.setdefault("dependsOn", [])
+        it.setdefault("rationale", None)
+        it.setdefault("checks", [])
+        it.setdefault("proofs", [])
+        it.setdefault("startedAt", None)
+        it.setdefault("completedAt", None)
+        it.setdefault("auditFailures", [])
+        for ch in it["checks"]:
+            ch.setdefault("verifyCmd", None)
+            ch.setdefault("rationale", None)
+            ch.setdefault("timeoutSeconds", 300)
+            ch.setdefault("retries", 3)
+    return plan
 
 
 def empty_plan(project: str, goal: str, branch: str) -> dict[str, Any]:
@@ -137,19 +311,28 @@ def empty_check(check_id: str, description: str, verify_cmd: str | None) -> dict
     }
 
 
-def load(project_root: str | Path) -> dict[str, Any]:
-    p = plan_path(project_root)
+def load(project_root: str | Path, slug: str = DEFAULT_SLUG) -> dict[str, Any]:
+    p = plan_path(project_root, slug)
     if not p.exists():
         raise PlanError(f"no Plan.json at {p}; run `gpr init`")
     try:
-        return json.loads(p.read_text())
+        data = json.loads(p.read_text())
     except json.JSONDecodeError as exc:
         raise PlanError(f"corrupt Plan.json: {exc}") from exc
+    # Lazy normalize: a hand-dropped Plan.json under .gpr/plans/<slug>/
+    # may be missing fields. Fill defaults idempotently.
+    normalized = normalize_plan_dict(dict(data))
+    if normalized != data:
+        save(project_root, normalized, slug)
+        return normalized
+    return data
 
 
-def save(project_root: str | Path, plan: dict[str, Any]) -> None:
+def save(
+    project_root: str | Path, plan: dict[str, Any], slug: str = DEFAULT_SLUG
+) -> None:
     """Atomic write: tmp + rename."""
-    p = plan_path(project_root)
+    p = plan_path(project_root, slug)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n")
@@ -157,14 +340,18 @@ def save(project_root: str | Path, plan: dict[str, Any]) -> None:
 
 
 def init(
-    project_root: str | Path, project: str, goal: str, branch: str
+    project_root: str | Path,
+    project: str,
+    goal: str,
+    branch: str,
+    slug: str = DEFAULT_SLUG,
 ) -> dict[str, Any]:
-    p = plan_path(project_root)
+    p = plan_path(project_root, slug)
     if p.exists():
         raise PlanError(f"Plan.json already exists at {p}")
     plan = empty_plan(project, goal, branch)
-    with file_lock(lock_path(project_root)):
-        save(project_root, plan)
+    with file_lock(lock_path(project_root, slug)):
+        save(project_root, plan, slug)
     return plan
 
 
